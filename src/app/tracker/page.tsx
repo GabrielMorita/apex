@@ -209,7 +209,7 @@ export default function TrackerPage() {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 overflow-y-auto">
       <PageHeader title="Tracker" subtitle="Sua evolução semanal, hábito por hábito" />
-      <div className="px-8 py-6 max-w-3xl">
+      <div className="apex-page max-w-3xl">
 
         {/* Painel principal — anel + stats */}
         <div className="surface-raised rounded-3xl p-6 mb-5">

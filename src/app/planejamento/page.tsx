@@ -67,7 +67,7 @@ export default function PlanejamentoPage() {
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="flex-1 overflow-y-auto">
       <PageHeader title="Planejamento" subtitle="Presets, exceções e metas de longo prazo"/>
-      <div className="px-8 py-6 max-w-3xl space-y-10">
+      <div className="apex-page max-w-3xl space-y-10">
 
         {/* Presets */}
         <section>

@@ -56,7 +56,7 @@ export default function DeepWorkPage() {
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="flex-1 overflow-y-auto">
       <PageHeader title="Deep Work" subtitle="Sessões de foco profundo"/>
-      <div className="px-8 py-6 max-w-2xl">
+      <div className="apex-page max-w-2xl">
 
         <div className="bg-apex-card border border-apex-border rounded-2xl p-8 mb-6 flex flex-col items-center">
           {/* Mode tabs */}

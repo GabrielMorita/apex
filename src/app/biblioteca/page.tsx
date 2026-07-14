@@ -88,7 +88,7 @@ export default function BibliotecaPage() {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 overflow-y-auto">
       <PageHeader title="Biblioteca" subtitle="Seus livros como projetos de leitura" />
-      <div className="px-8 py-6 max-w-2xl">
+      <div className="apex-page max-w-2xl">
 
         <div className="flex items-center gap-3 mb-6">
           <div className="flex gap-3">

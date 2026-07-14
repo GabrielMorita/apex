@@ -34,7 +34,7 @@ export default function PeriodizacaoPage() {
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="flex-1 overflow-y-auto">
       <PageHeader title="Periodização" subtitle="Planejamento semanal de treinos"/>
-      <div className="px-8 py-6 max-w-3xl space-y-8">
+      <div className="apex-page max-w-3xl space-y-8">
 
         {/* Semana */}
         <section>

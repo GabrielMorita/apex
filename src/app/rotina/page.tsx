@@ -88,7 +88,7 @@ export default function RotinaPage() {
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="flex-1 overflow-y-auto">
       <PageHeader title="Rotina" subtitle="Seus hábitos diários"/>
-      <div className="px-8 py-6 max-w-3xl">
+      <div className="apex-page max-w-3xl">
         <div className="flex gap-3 mb-6">
           {[{v:done,l:"Concluídos",g:true},{v:habits.length-done,l:"Pendentes",g:false},{v:habits.length,l:"Total",g:false}].map(m=>(
             <div key={m.l} className="bg-apex-card border border-apex-border rounded-xl px-5 py-3 text-center flex-1">

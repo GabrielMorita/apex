@@ -21,7 +21,7 @@ export default function RevisaoPage() {
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="flex-1 overflow-y-auto">
       <PageHeader title="Revisão Semanal" subtitle="Avalie sua semana"/>
-      <div className="px-8 py-6 max-w-2xl space-y-8">
+      <div className="apex-page max-w-2xl space-y-8">
         <section>
           <p className="text-[9px] text-apex-faint tracking-[2px] uppercase mb-4">Resumo</p>
           <div className="grid grid-cols-3 gap-3">

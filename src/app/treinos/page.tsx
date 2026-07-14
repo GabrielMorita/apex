@@ -11,7 +11,7 @@ export default function TreinosPage() {
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="flex-1 overflow-y-auto">
       <PageHeader title="Treinos" subtitle="Histórico de treinos realizados"/>
-      <div className="px-8 py-6 max-w-2xl">
+      <div className="apex-page max-w-2xl">
         {logs.length===0?(
           <div className="text-center py-16">
             <p className="text-[13px] text-apex-muted mb-2">Nenhum treino registrado ainda</p>

@@ -48,7 +48,7 @@ export default function PerformancePage() {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 overflow-y-auto">
       <PageHeader title="Performance" subtitle="Execução dos treinos da semana" />
-      <div className="px-8 py-6 max-w-3xl space-y-6">
+      <div className="apex-page max-w-3xl space-y-6">
 
         {/* Explicação rápida */}
         <div className="bg-apex-surface border border-apex-border rounded-xl px-4 py-3 flex items-start gap-3">

@@ -92,7 +92,7 @@ export default function ConfiguracoesPage() {
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="flex-1 overflow-y-auto">
       <PageHeader title="Configurações" subtitle="Perfil, backup e histórico"/>
-      <div className="px-8 py-6 max-w-2xl space-y-5">
+      <div className="apex-page max-w-2xl space-y-5">
 
         {/* Perfil */}
         <Section title="Perfil" icon={User}>

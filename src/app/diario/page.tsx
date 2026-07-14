@@ -69,7 +69,7 @@ export default function DiarioPage() {
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="flex-1 overflow-y-auto">
       <PageHeader title="Diário" subtitle="Reflexão, gratidão e frases do dia"/>
-      <div className="px-8 py-6 max-w-3xl space-y-8">
+      <div className="apex-page max-w-3xl space-y-8">
 
         {/* Frase + Versículo do dia */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

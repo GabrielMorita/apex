@@ -1,29 +1,84 @@
 import type { Config } from "tailwindcss";
+
 const config: Config = {
   content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
   theme: {
     extend: {
       colors: {
+        canvas: "var(--surface-canvas)",
+        "canvas-glass": "var(--surface-canvas-glass)",
+        surface: {
+          DEFAULT: "var(--surface-base)",
+          glass: "var(--surface-base-glass)",
+          raised: "var(--surface-raised)",
+          overlay: "var(--surface-overlay)",
+          hover: "var(--surface-hover)",
+        },
+        ink: {
+          DEFAULT: "var(--text-primary)",
+          secondary: "var(--text-secondary)",
+          muted: "var(--text-muted)",
+          faint: "var(--text-faint)",
+          inverse: "var(--text-inverse)",
+        },
+        accent: {
+          DEFAULT: "var(--accent-primary)",
+          strong: "var(--accent-strong)",
+          muted: "var(--accent-muted)",
+          subtle: "var(--accent-subtle)",
+        },
+        line: {
+          DEFAULT: "var(--border-default)",
+          subtle: "var(--border-subtle)",
+          strong: "var(--border-strong)",
+          accent: "var(--border-accent)",
+        },
+        status: {
+          success: "var(--status-success)",
+          warning: "var(--status-warning)",
+          error: "var(--status-error)",
+          info: "var(--status-info)",
+        },
+
+        /* Legacy aliases. Existing screens inherit the new system while
+           they are progressively migrated to the semantic tokens above. */
         apex: {
-          bg: "#14100b", surface: "#1b1610", card: "#221b14",
-          border: "#34291d", border2: "#4d3c2a",
-          white: "#f3ebdd", muted: "#a99a83", faint: "#6f6250",
-          gold: "#e3ad52", "gold-dim": "#8a6a2f", "gold-bg": "#241c10",
-          ember: "#d0855a",
+          bg: "var(--surface-canvas)",
+          surface: "var(--surface-base)",
+          card: "var(--surface-raised)",
+          border: "var(--border-default)",
+          border2: "var(--border-strong)",
+          white: "var(--text-primary)",
+          muted: "var(--text-secondary)",
+          faint: "var(--text-muted)",
+          gold: "var(--accent-primary)",
+          "gold-dim": "var(--accent-muted)",
+          "gold-bg": "var(--accent-subtle)",
+          ember: "var(--status-warning)",
         },
       },
       fontFamily: {
         sans: ["var(--font-sans)"],
         mono: ["var(--font-mono)"],
       },
+      borderRadius: {
+        control: "var(--radius-control)",
+        card: "var(--radius-card)",
+        panel: "var(--radius-panel)",
+      },
       boxShadow: {
-        card: "0 10px 28px -14px rgba(0,0,0,0.65), 0 2px 6px -2px rgba(0,0,0,0.45)",
-        "card-hover": "0 18px 40px -16px rgba(0,0,0,0.7), 0 5px 12px -4px rgba(0,0,0,0.5)",
-        gold: "0 10px 30px -10px rgba(227,173,82,0.32)",
-        "glow-gold": "0 0 0 1px rgba(227,173,82,0.28), 0 12px 32px -10px rgba(227,173,82,0.3)",
+        card: "var(--shadow-card)",
+        "card-hover": "var(--shadow-card-hover)",
+        float: "var(--shadow-float)",
+        gold: "var(--shadow-accent)",
+        "glow-gold": "var(--shadow-accent)",
+      },
+      transitionTimingFunction: {
+        product: "cubic-bezier(.22,.61,.36,1)",
       },
     },
   },
   plugins: [],
 };
+
 export default config;

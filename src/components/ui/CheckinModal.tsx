@@ -1,53 +1,76 @@
 "use client";
+
 import { useState } from "react";
 import { motion } from "framer-motion";
 import LucideIcon from "@/components/ui/LucideIcon";
 import { CHECKIN_FIELDS, type CheckinEntry } from "@/data/extraData";
 
-interface Props { onComplete:(e:CheckinEntry)=>void; onSkip:()=>void; }
+interface Props {
+  onComplete: (entry: CheckinEntry) => void;
+  onSkip: () => void;
+}
 
 export default function CheckinModal({ onComplete, onSkip }: Props) {
   const today = new Date().toISOString().split("T")[0];
-  const [values, setValues] = useState<Record<string,number>>({ energia:3,sono:3,humor:3,estresse:2,dorMuscular:1 });
+  const [values, setValues] = useState<Record<string, number>>({ energia: 3, sono: 3, humor: 3, estresse: 2, dorMuscular: 1 });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{background:"rgba(0,0,0,0.75)"}}>
-      <motion.div initial={{opacity:0,scale:0.95,y:10}} animate={{opacity:1,scale:1,y:0}}
-        className="bg-apex-surface border border-apex-border rounded-2xl p-6 w-full max-w-md">
-        <div className="text-center mb-6">
-          <p className="text-[10px] text-gold tracking-[2px] uppercase mb-1">Bom dia</p>
-          <p className="text-[16px] font-medium text-apex-white">Como você está hoje?</p>
-          <p className="text-[11px] text-apex-faint mt-1">Check-in rápido para começar o dia</p>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 p-0 backdrop-blur-sm sm:items-center sm:p-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.98, y: 18 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-t-[28px] border border-line bg-surface-overlay p-5 pb-[calc(24px+env(safe-area-inset-bottom))] shadow-float sm:rounded-panel sm:p-6"
+      >
+        <div className="mb-6 text-center">
+          <p className="apex-kicker mb-2 text-accent">Check-in diário</p>
+          <p className="text-[18px] font-bold tracking-[-0.025em] text-ink">Como você está hoje?</p>
+          <p className="mt-1.5 text-[11px] text-ink-muted">Um minuto para ajustar o seu dia à sua condição real.</p>
         </div>
-        <div className="space-y-4 mb-6">
-          {CHECKIN_FIELDS.map((field)=>(
+
+        <div className="mb-6 space-y-5">
+          {CHECKIN_FIELDS.map((field) => (
             <div key={field.key}>
-              <div className="flex items-center gap-2 mb-2">
-                <LucideIcon name={field.lucideIcon} size={13} color="#c9a84c"/>
-                <span className="text-[12px] text-apex-white">{field.label}</span>
-                <span className="ml-auto text-[10px] text-gold font-mono">{values[field.key]}/5</span>
+              <div className="mb-2.5 flex items-center gap-2">
+                <LucideIcon name={field.lucideIcon} size={14} color="var(--accent-primary)" />
+                <span className="text-[12px] font-semibold text-ink">{field.label}</span>
+                <span className="ml-auto font-stat text-[10px] text-accent">{values[field.key]}/5</span>
               </div>
-              <div className="flex gap-1.5">
-                {[1,2,3,4,5].map((n)=>{
-                  const active=values[field.key]>=n;
+              <div className="grid grid-cols-5 gap-2">
+                {[1, 2, 3, 4, 5].map((number) => {
+                  const active = values[field.key] >= number;
                   return (
-                    <button key={n} onClick={()=>setValues((p)=>({...p,[field.key]:n}))}
-                      className="flex-1 h-7 rounded-lg border transition-all"
-                      style={{background:active?"#c9a84c22":"transparent",borderColor:active?"#c9a84c":"#1e1e1e"}}/>
+                    <button
+                      key={number}
+                      onClick={() => setValues((previous) => ({ ...previous, [field.key]: number }))}
+                      aria-label={`${field.label}: ${number} de 5`}
+                      className="h-9 rounded-control border transition-colors"
+                      style={{
+                        background: active ? "var(--accent-subtle)" : "var(--surface-base)",
+                        borderColor: active ? "var(--border-accent)" : "var(--border-default)",
+                      }}
+                    />
                   );
                 })}
               </div>
             </div>
           ))}
         </div>
-        <div className="flex gap-2">
-          <button onClick={()=>onComplete({date:today,energia:values.energia,sono:values.sono,humor:values.humor,estresse:values.estresse,dorMuscular:values.dorMuscular})}
-            className="flex-1 py-2.5 bg-gold text-apex-bg rounded-xl text-[12px] font-medium hover:bg-amber-500 transition-colors">
+
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            onClick={() => onComplete({
+              date: today,
+              energia: values.energia,
+              sono: values.sono,
+              humor: values.humor,
+              estresse: values.estresse,
+              dorMuscular: values.dorMuscular,
+            })}
+            className="apex-button-primary flex-1"
+          >
             Salvar check-in
           </button>
-          <button onClick={onSkip} className="px-4 border border-apex-border text-apex-muted rounded-xl text-[12px] hover:border-apex-border2 transition-colors">
-            Pular
-          </button>
+          <button onClick={onSkip} className="apex-button-secondary sm:px-5">Pular hoje</button>
         </div>
       </motion.div>
     </div>

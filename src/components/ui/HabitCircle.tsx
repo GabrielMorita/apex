@@ -1,6 +1,7 @@
 "use client";
+
 import { motion } from "framer-motion";
-import { Flame } from "lucide-react";
+import { Check, Flame, Minus } from "lucide-react";
 import LucideIcon from "@/components/ui/LucideIcon";
 import type { Habit, HabitStatus } from "@/data/mockData";
 import { isRestDay } from "@/data/mockData";
@@ -18,53 +19,61 @@ function nextStatus(current: HabitStatus, rest: boolean): HabitStatus {
 }
 
 export default function HabitCircle({ habit, onToggle }: HabitCircleProps) {
-  const rest   = isRestDay(habit.frequency ?? { type: "daily" });
+  const rest = isRestDay(habit.frequency ?? { type: "daily" });
   const isDone = habit.status === "done";
-  const isSkip = habit.status === "skipped";
+  const isSkipped = habit.status === "skipped";
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:8 }}>
-      <motion.button
-        whileTap={{ scale: 0.9 }}
-        whileHover={{ scale: rest ? 1 : 1.07, y: rest ? 0 : -2 }}
-        transition={{ type:"spring", stiffness:400, damping:22 }}
-        onClick={() => onToggle(habit.id, nextStatus(habit.status, rest))}
-        disabled={rest}
-        style={{
-          position:"relative",
-          width:74, height:74, borderRadius:"50%",
-          border:`2.5px solid ${isDone ? habit.color : isSkip ? "#4a3b2a" : "rgba(243,235,221,0.12)"}`,
-          background: isDone
-            ? `radial-gradient(circle at 50% 38%, ${habit.color}26, ${habit.color}10 70%)`
-            : "rgba(255,247,235,0.015)",
-          display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:3,
-          cursor: rest ? "default" : "pointer",
-          opacity: rest ? 0.32 : 1,
-          boxShadow: isDone ? `0 0 22px -2px ${habit.color}55, inset 0 0 14px -4px ${habit.color}40` : "none",
-          transition:"border-color .25s, background .25s, box-shadow .25s",
-        }}
-        title={rest ? "Dia de descanso" : habit.name}
-      >
-        <LucideIcon
-          name={habit.lucideIcon ?? "Circle"}
-          size={23}
-          color={isDone ? habit.color : isSkip ? "#6f5c40" : "rgba(243,235,221,0.32)"}
-          strokeWidth={isDone ? 2.2 : 1.6}
-        />
-        {isDone && (
-          <div style={{ display:"flex", alignItems:"center", gap:2 }}>
-            <Flame size={9} color={habit.color} fill={habit.color} />
-            <span className="font-stat" style={{ fontSize:9, fontWeight:600, color:habit.color }}>{habit.streak}</span>
-          </div>
-        )}
-        {isSkip && <span style={{ fontSize:11, color:"#6f5c40" }}>✕</span>}
-        {!isDone && !isSkip && !rest && (
-          <div style={{ width:5, height:5, borderRadius:"50%", background:"rgba(243,235,221,0.14)" }} />
-        )}
-      </motion.button>
-      <span style={{ fontSize:10.5, color:isDone?"#cdbfa6":"#a99a83", textAlign:"center", maxWidth:78, lineHeight:1.3, fontWeight:500 }}>
-        {habit.name}
-      </span>
-    </div>
+    <motion.button
+      whileTap={rest ? undefined : { scale: 0.98 }}
+      onClick={() => onToggle(habit.id, nextStatus(habit.status, rest))}
+      disabled={rest}
+      className="group flex min-h-[104px] w-full flex-col justify-between rounded-card border p-3 text-left transition-colors sm:min-h-[116px] sm:p-4"
+      style={{
+        borderColor: isDone ? `${habit.color}66` : "var(--border-default)",
+        background: isDone
+          ? `linear-gradient(145deg, ${habit.color}18, var(--surface-raised) 66%)`
+          : "var(--surface-raised)",
+        opacity: rest ? 0.45 : 1,
+        boxShadow: isDone ? `0 16px 30px -26px ${habit.color}` : "var(--shadow-card)",
+      }}
+      title={rest ? "Dia de descanso" : habit.name}
+    >
+      <div className="flex w-full items-start justify-between gap-2">
+        <span
+          className="flex h-9 w-9 items-center justify-center rounded-control border"
+          style={{
+            background: isDone ? `${habit.color}18` : "var(--surface-base)",
+            borderColor: isDone ? `${habit.color}4d` : "var(--border-subtle)",
+          }}
+        >
+          <LucideIcon
+            name={habit.lucideIcon ?? "Circle"}
+            size={17}
+            color={isDone ? habit.color : "var(--text-muted)"}
+            strokeWidth={isDone ? 2.2 : 1.75}
+          />
+        </span>
+
+        <span
+          className="flex h-7 w-7 items-center justify-center rounded-full border"
+          style={{
+            background: isDone ? habit.color : "transparent",
+            borderColor: isDone ? habit.color : "var(--border-default)",
+            color: isDone ? "var(--text-inverse)" : "var(--text-faint)",
+          }}
+        >
+          {isDone ? <Check size={13} strokeWidth={3} /> : isSkipped ? <Minus size={12} /> : null}
+        </span>
+      </div>
+
+      <div className="mt-4 min-w-0">
+        <p className="line-clamp-2 text-[12px] font-semibold leading-snug text-ink sm:text-[13px]">{habit.name}</p>
+        <div className="mt-2 flex items-center gap-1.5 text-[9px] font-medium text-ink-muted">
+          {isDone && <Flame size={10} fill={habit.color} color={habit.color} />}
+          <span className="font-stat">{rest ? "descanso" : isDone ? `${habit.streak} dias` : habit.time}</span>
+        </div>
+      </div>
+    </motion.button>
   );
 }
