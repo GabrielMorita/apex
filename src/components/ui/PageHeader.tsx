@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Smile } from "lucide-react";
+import { CircleUserRound, Smile } from "lucide-react";
 import { useLocalStorage } from "@/lib/useLocalStorage";
+import { navigateTo } from "@/lib/navigationEvents";
 
 const MOODS = [
   { emoji: "😔", label: "Difícil" },
@@ -64,7 +65,8 @@ export default function PageHeader({ title, subtitle }: PageHeaderProps) {
         </div>
 
         {longDate && (
-          <div className="relative shrink-0">
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="relative">
             <button
               onClick={() => setOpen((value) => !value)}
               aria-label="Definir humor do dia"
@@ -116,6 +118,15 @@ export default function PageHeader({ title, subtitle }: PageHeaderProps) {
                 </>
               )}
             </AnimatePresence>
+            </div>
+            <button
+              onClick={() => navigateTo("configuracoes")}
+              aria-label="Perfil e configurações"
+              title="Perfil e configurações"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-line bg-surface-raised text-ink-muted transition-colors hover:border-line-strong hover:text-accent"
+            >
+              <CircleUserRound size={18} />
+            </button>
           </div>
         )}
       </div>

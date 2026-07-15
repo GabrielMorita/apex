@@ -4,7 +4,7 @@ import PWARegister from "@/components/PWARegister";
 
 export const metadata: Metadata = {
   title: "Apex — Sistema Pessoal",
-  description: "Seu sistema de evolução pessoal: hábitos, treinos, leitura, foco e metas.",
+  description: "Planeje, execute e acompanhe hábitos, metas, treinos e alimentação em um único sistema.",
   applicationName: "Apex",
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Apex" },
   formatDetection: { telephone: false },
@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0b0d10",
+  themeColor: "#14100b",
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",

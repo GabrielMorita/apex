@@ -124,7 +124,7 @@ button { -webkit-tap-highlight-color: transparent; }
     width: 100%;
     max-width: 1440px;
     margin-inline: auto;
-    padding: 20px 16px calc(104px + env(safe-area-inset-bottom));
+    padding: 20px 16px calc(124px + env(safe-area-inset-bottom));
   }
 
   .apex-card,
@@ -271,3 +271,22 @@ button { -webkit-tap-highlight-color: transparent; }
 input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+
+/* Embedded legacy modules now live inside the four main workspaces. */
+.embedded-module > div {
+  min-height: auto !important;
+  overflow: visible !important;
+}
+
+.embedded-module > div > header {
+  display: none !important;
+}
+
+.embedded-module > div > .apex-page {
+  max-width: none !important;
+  padding: 0 !important;
+}
+
+.embedded-module > div > .apex-page > :first-child {
+  margin-top: 0;
+}

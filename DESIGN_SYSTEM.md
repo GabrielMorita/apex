@@ -54,21 +54,14 @@ A metáfora central é **subir com método**: cada módulo representa uma parte 
 
 ## Navegação responsiva
 
-### Desktop
+A arquitetura do produto possui quatro destinos principais em desktop e mobile:
 
-Sidebar persistente com quatro grupos: Hoje, Corpo, Mente e Sistema.
+- Hoje — execução do dia
+- Planejamento — criação de hábitos, metas, agenda e livros
+- Progresso — métricas, hábitos e revisão semanal
+- Corpo — treinos, ciclos e dieta
 
-### Mobile
-
-Barra inferior com:
-
-- Hoje
-- Rotina
-- Hábitos
-- Planejar
-- Mais
-
-“Mais” abre um bottom sheet com todos os módulos. A barra usa `env(safe-area-inset-bottom)` e permanece acessível com uma mão.
+Configurações são abertas pelo ícone de perfil no cabeçalho. Não existe menu “Mais”.
 
 ## Estado da migração
 
@@ -100,9 +93,11 @@ Os aliases `apex-*`, `surface-card` e `surface-raised` continuam disponíveis. I
 - Cards importantes devem comunicar significado, não apenas exibir ícone + número.
 - Cores configuráveis de hábitos e treinos podem existir, mas não substituem a cor da marca.
 
-## V2 — Product architecture
-- Mobile primary navigation: Hoje, Rotina, Progresso, Planejar, Mais.
-- Hoje is the execution center: current block, next steps, habits, body, food, inbox and daily close.
-- Progresso consolidates habits, workouts, tasks, check-ins and goals.
-- Global quick capture stores tasks, ideas and diary entries from any screen.
-- Local-storage state is synchronized between mounted components through an internal browser event.
+## V4 — Arquitetura do produto
+
+- Hoje é o centro de execução.
+- Planejamento configura o que aparecerá em Hoje.
+- Progresso concentra análises e revisão.
+- Corpo concentra treino, periodização e dieta.
+- Deep Work é uma ação contextual, não uma página.
+- A paleta oficial é espresso, marrom e dourado quente.

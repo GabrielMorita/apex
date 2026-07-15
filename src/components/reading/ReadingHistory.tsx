@@ -5,7 +5,7 @@ interface Props { projects: ReadingProject[]; sessions: ReadingSession[]; }
 
 export default function ReadingHistory({ projects, sessions }: Props) {
   if (sessions.length === 0) {
-    return <p className="text-[11px] text-apex-faint italic">Nenhuma sessão de leitura ainda. Registre uma leitura no Dashboard ou na Biblioteca.</p>;
+    return <p className="text-[11px] text-apex-faint italic">Nenhuma sessão de leitura ainda. Registre uma leitura em Hoje ou no Planejamento.</p>;
   }
 
   const thisMonth = new Date().toISOString().slice(0, 7);

@@ -1,11 +1,10 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Download, Upload, CheckCircle2, AlertCircle, User, ChevronDown, ChevronUp, BookOpen, Dumbbell, Activity, Target, Library } from "lucide-react";
+import { Download, Upload, CheckCircle2, AlertCircle, User, ChevronDown, ChevronUp, Dumbbell, Activity, Target, Library } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
 import ReadingHistory from "@/components/reading/ReadingHistory";
 import { useLocalStorage } from "@/lib/useLocalStorage";
-import type { DiaryEntry } from "@/data/extraData";
 import { defaultReadingProjects, defaultReadingSessions, type ReadingProject, type ReadingSession } from "@/data/readingData";
 
 const APEX_KEYS = [
@@ -48,7 +47,6 @@ export default function ConfiguracoesPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [profile, setProfile] = useLocalStorage<Profile>("apex-profile",{name:"",email:"",avatar:""});
-  const [diaryEntries]        = useLocalStorage<DiaryEntry[]>("apex-diary-entries",[]);
   const [readingProjects]     = useLocalStorage<ReadingProject[]>("apex-reading-projects", defaultReadingProjects);
   const [readingSessions]     = useLocalStorage<ReadingSession[]>("apex-reading-sessions", defaultReadingSessions);
   const [sessions]            = useLocalStorage<{id:string;date:string;minutes:number;task:string}[]>("apex-deepwork-sessions",[]);
@@ -79,19 +77,13 @@ export default function ConfiguracoesPage() {
     reader.readAsText(file);
   }
 
-  // Group diary by month
-  const diaryByMonth = diaryEntries.reduce((acc,e)=>{
-    const m=e.date.slice(0,7);
-    if(!acc[m]) acc[m]=[];
-    acc[m].push(e);
-    return acc;
-  },{} as Record<string,DiaryEntry[]>);
+
 
   if (!mounted) return null;
 
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="flex-1 overflow-y-auto">
-      <PageHeader title="Configurações" subtitle="Perfil, backup e histórico"/>
+      <PageHeader title="Configurações" subtitle="Perfil, preferências, histórico e backup"/>
       <div className="apex-page max-w-2xl space-y-5">
 
         {/* Perfil */}
@@ -111,29 +103,6 @@ export default function ConfiguracoesPage() {
               🔒 Login e senha para uso online serão habilitados quando o app for publicado. Por enquanto, seus dados ficam salvos localmente no seu navegador.
             </p>
           </div>
-        </Section>
-
-        {/* Histórico do Diário */}
-        <Section title="Histórico do Diário" icon={BookOpen} defaultOpen={false}>
-          {diaryEntries.length===0
-            ?<p className="text-[11px] text-apex-faint italic">Nenhuma entrada ainda. Escreva seu primeiro diário na aba Diário.</p>
-            :Object.entries(diaryByMonth).sort((a,b)=>b[0].localeCompare(a[0])).map(([month,entries])=>(
-              <div key={month} className="mb-5 last:mb-0">
-                <p className="text-[9px] text-gold tracking-[2px] uppercase mb-2">{new Date(month+"-01").toLocaleDateString("pt-BR",{month:"long",year:"numeric"})}</p>
-                <div className="space-y-2">
-                  {entries.sort((a,b)=>b.date.localeCompare(a.date)).map((e)=>(
-                    <div key={e.id} className="bg-apex-surface border border-apex-border rounded-xl px-4 py-3">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <p className="text-[10px] text-apex-muted font-mono">{new Date(e.date+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"short",day:"numeric",month:"short"})}</p>
-                        {e.mood&&<span className="text-[14px]">{["😔","😐","🙂","😊","🤩"][e.mood-1]}</span>}
-                      </div>
-                      <p className="text-[11px] text-apex-faint leading-relaxed line-clamp-2">{e.content}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))
-          }
         </Section>
 
         {/* Histórico de Check-ins / Energia */}
@@ -169,7 +138,7 @@ export default function ConfiguracoesPage() {
         </Section>
 
         {/* Histórico de Deep Work */}
-        <Section title="Histórico de Foco (Deep Work)" icon={Target} defaultOpen={false}>
+        <Section title="Histórico de Foco" icon={Target} defaultOpen={false}>
           {sessions.length===0
             ?<p className="text-[11px] text-apex-faint italic">Nenhuma sessão registrada ainda.</p>
             :<div className="space-y-1.5">

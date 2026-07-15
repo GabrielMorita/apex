@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { BookOpen, CheckSquare, Lightbulb, Plus, X } from "lucide-react";
+import { CheckSquare, Lightbulb, Plus, X } from "lucide-react";
 import clsx from "clsx";
 import { useLocalStorage } from "@/lib/useLocalStorage";
-import { defaultTasks, type DiaryEntry, type Task } from "@/data/extraData";
+import { defaultTasks, type Task } from "@/data/extraData";
 
 export interface InboxItem {
   id: string;
@@ -15,12 +15,11 @@ export interface InboxItem {
   archived?: boolean;
 }
 
-type CaptureType = "task" | "idea" | "diary";
+type CaptureType = "task" | "idea";
 
 const TYPES = [
   { id: "task" as const, label: "Tarefa", Icon: CheckSquare, placeholder: "O que precisa ser feito?" },
   { id: "idea" as const, label: "Ideia", Icon: Lightbulb, placeholder: "Capture antes de esquecer..." },
-  { id: "diary" as const, label: "Diário", Icon: BookOpen, placeholder: "O que está passando pela sua cabeça?" },
 ];
 
 export default function QuickCapture() {
@@ -30,7 +29,6 @@ export default function QuickCapture() {
   const [saved, setSaved] = useState(false);
   const [, setTasks] = useLocalStorage<Task[]>("apex-tasks", defaultTasks);
   const [, setInbox] = useLocalStorage<InboxItem[]>("apex-inbox", []);
-  const [, setDiary] = useLocalStorage<DiaryEntry[]>("apex-diary-entries", []);
   const selected = TYPES.find((item) => item.id === type)!;
 
   function close() {
@@ -48,10 +46,8 @@ export default function QuickCapture() {
 
     if (type === "task") {
       setTasks((previous) => [...previous, { id, name: content, frequency: { type: "once" }, status: "pending", date: today }]);
-    } else if (type === "idea") {
-      setInbox((previous) => [{ id, type: "idea", content, createdAt: now.toISOString() }, ...previous]);
     } else {
-      setDiary((previous) => [{ id, date: today, content }, ...previous]);
+      setInbox((previous) => [{ id, type: "idea", content, createdAt: now.toISOString() }, ...previous]);
     }
 
     setSaved(true);
@@ -77,7 +73,7 @@ export default function QuickCapture() {
                 <button onClick={close} className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface text-ink-muted"><X size={17} /></button>
               </div>
 
-              <div className="mb-4 grid grid-cols-3 gap-2">
+              <div className="mb-4 grid grid-cols-2 gap-2">
                 {TYPES.map(({ id, label, Icon }) => {
                   const active = type === id;
                   return <button key={id} onClick={() => setType(id)} className={clsx("flex min-h-12 items-center justify-center gap-2 rounded-control border text-[11px] font-semibold transition-colors", active ? "border-line-accent bg-accent-subtle text-accent" : "border-line bg-surface text-ink-muted")}><Icon size={15} /> {label}</button>;

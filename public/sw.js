@@ -1,5 +1,5 @@
 // Apex — Service Worker (offline + instalável)
-const CACHE = "apex-cache-v1";
+const CACHE = "apex-cache-v4";
 const PRECACHE = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",
