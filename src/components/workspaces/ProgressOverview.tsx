@@ -6,16 +6,20 @@ import { Activity, ArrowRight, BatteryMedium, CheckCircle2, Dumbbell, Flag, Moun
 import PageHeader from "@/components/ui/PageHeader";
 import LucideIcon from "@/components/ui/LucideIcon";
 import { Card, IconTile, SectionHeader } from "@/components/ui/primitives";
-import { useLocalStorage } from "@/lib/useLocalStorage";
+import WeightProgress from "@/components/profile/WeightProgress";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { navigateTo } from "@/lib/navigationEvents";
-import { countDoneThisWeek, defaultHabits, defaultPlannedWorkouts, getCurrentWeekDates, type Habit, type HabitStatus, type PlannedWorkout } from "@/data/mockData";
-import { defaultGoals, defaultTasks, isTaskScheduledToday, type CheckinEntry, type Goal, type Task } from "@/data/extraData";
+import { loadTrainingSchedule } from "@/lib/training/service";
+import { currentWeekDates, isoDate, taskIsScheduled, taskStatus } from "@/lib/productivity/date";
+import { friendlyProductivityError } from "@/lib/productivity/errors";
+import { loadCheckins, loadGoals, loadHabitEntries, loadHabits, loadTaskEntries, loadTasks } from "@/lib/productivity/service";
+import type { CheckinEntry, Goal, Habit, HabitEntry, Task, TaskEntry } from "@/lib/productivity/types";
 
 const clamp = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
 
 function goalProgress(goal: Goal) {
   if (goal.target <= 0) return 0;
-  return clamp(goal.unit === "min" && goal.current > goal.target ? (goal.target / goal.current) * 100 : (goal.current / goal.target) * 100);
+  return clamp((goal.current / goal.target) * 100);
 }
 
 function Metric({ label, value, detail, Icon, emphasis = false }: { label: string; value: string; detail: string; Icon: typeof Activity; emphasis?: boolean }) {
@@ -42,45 +46,82 @@ function ApexPath({ score }: { score: number }) {
   );
 }
 
-export default function ProgressOverview({ onOpenTab }: { onOpenTab?: (tab: "visao" | "habitos" | "revisao") => void }) {
+export default function ProgressOverview({ onOpenTab }: { onOpenTab?: (tab: "visao" | "habitos" | "alimentacao" | "revisao") => void }) {
+  const { user, loading: authLoading } = useAuth();
   const [mounted, setMounted] = useState(false);
-  const [habits] = useLocalStorage<Habit[]>("apex-habits-today", defaultHabits);
-  const [histories] = useLocalStorage<Record<string, Record<string, HabitStatus>>>("apex-habit-histories", {});
-  const [todayStatuses] = useLocalStorage<Record<string, HabitStatus>>("apex-today-statuses", {});
-  const [weeklyGoals] = useLocalStorage<Record<string, number>>("apex-weekly-goals", Object.fromEntries(defaultHabits.map((habit) => [habit.id, habit.weeklyGoal])));
-  const [planned] = useLocalStorage<PlannedWorkout[]>("apex-planned-workouts", defaultPlannedWorkouts);
-  const [tasks] = useLocalStorage<Task[]>("apex-tasks", defaultTasks);
-  const [checkins] = useLocalStorage<CheckinEntry[]>("apex-checkins", []);
-  const [goals] = useLocalStorage<Goal[]>("apex-goals", defaultGoals);
+  const [habits, setHabits] = useState<Habit[]>([]);
+  const [habitEntries, setHabitEntries] = useState<HabitEntry[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [taskEntries, setTaskEntries] = useState<TaskEntry[]>([]);
+  const [checkins, setCheckins] = useState<CheckinEntry[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [trainingSummary, setTrainingSummary] = useState({ completed: 0, total: 0, loading: true });
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+  const weekDates = useMemo(() => currentWeekDates(), []);
   useEffect(() => setMounted(true), []);
 
-  const today = new Date().toISOString().split("T")[0];
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      setTrainingSummary({ completed: 0, total: 0, loading: false });
+      setLoading(false);
+      return;
+    }
+    let active = true;
+    setLoading(true);
+    setErrorMessage("");
+    void Promise.all([
+      loadHabits(user.id),
+      loadHabitEntries(user.id, weekDates[0], weekDates[6]),
+      loadTasks(user.id),
+      loadTaskEntries(user.id, weekDates[0], weekDates[6]),
+      loadCheckins(user.id, weekDates[0], weekDates[6]),
+      loadGoals(user.id),
+      loadTrainingSchedule(user.id, weekDates[0], weekDates[6]),
+    ]).then(([loadedHabits, loadedHabitEntries, loadedTasks, loadedTaskEntries, loadedCheckins, loadedGoals, trainingRows]) => {
+      if (!active) return;
+      setHabits(loadedHabits);
+      setHabitEntries(loadedHabitEntries);
+      setTasks(loadedTasks);
+      setTaskEntries(loadedTaskEntries);
+      setCheckins(loadedCheckins);
+      setGoals(loadedGoals);
+      setTrainingSummary({ completed: trainingRows.filter((row) => row.status === "completed").length, total: trainingRows.length, loading: false });
+    }).catch((error) => {
+      if (!active) return;
+      setErrorMessage(friendlyProductivityError(error));
+      setTrainingSummary({ completed: 0, total: 0, loading: false });
+    }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [authLoading, user, weekDates]);
+
+  const today = isoDate(new Date());
   const rows = useMemo(() => habits.map((habit) => {
-    const history = { ...(histories[habit.id] ?? {}) };
-    if (todayStatuses[habit.id]) history[today] = todayStatuses[habit.id];
-    const done = countDoneThisWeek(history);
-    const goal = weeklyGoals[habit.id] ?? habit.weeklyGoal ?? 7;
+    const done = habitEntries.filter((entry) => entry.habitId === habit.id && entry.status === "done").length;
+    const goal = habit.weeklyGoal ?? 7;
     return { habit, done, goal, pct: clamp((done / Math.max(goal, 1)) * 100) };
-  }).sort((a, b) => b.pct - a.pct), [habits, histories, todayStatuses, today, weeklyGoals]);
+  }).sort((a, b) => b.pct - a.pct), [habits, habitEntries]);
 
   const totalDone = rows.reduce((sum, row) => sum + row.done, 0);
   const totalGoal = rows.reduce((sum, row) => sum + row.goal, 0);
   const consistency = clamp((totalDone / Math.max(totalGoal, 1)) * 100);
-  const workoutsDone = planned.filter((item) => item.done).length;
-  const workoutPct = clamp((workoutsDone / Math.max(planned.length, 1)) * 100);
-  const todayTasks = tasks.filter(isTaskScheduledToday);
-  const tasksDone = todayTasks.filter((task) => task.status === "done").length;
+  const workoutsDone = trainingSummary.completed;
+  const workoutPct = clamp((workoutsDone / Math.max(trainingSummary.total, 1)) * 100);
+  const todayTasks = tasks.filter((task) => taskIsScheduled(task, today));
+  const tasksDone = todayTasks.filter((task) => taskStatus(taskEntries, task.id, today) === "done").length;
   const taskPct = clamp((tasksDone / Math.max(todayTasks.length, 1)) * 100);
   const latestCheckin = [...checkins].sort((a, b) => b.date.localeCompare(a.date))[0];
   const score = clamp(consistency * .5 + workoutPct * .3 + taskPct * .2);
-  const weekDates = getCurrentWeekDates();
-
   if (!mounted) return null;
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-full">
       <PageHeader title="Progresso" subtitle="O que sua execução está construindo" />
       <div className="apex-page space-y-7 sm:space-y-9">
+        {errorMessage && <div role="alert" className="rounded-card border border-[var(--status-danger)]/35 bg-[var(--status-danger)]/10 px-4 py-3 text-[10px] text-[var(--status-danger)]">{errorMessage}</div>}
+        <WeightProgress />
+
         <section className="grid gap-4 xl:grid-cols-[1.05fr_.95fr]">
           <Card emphasis className="overflow-hidden p-5 sm:p-6">
             <div className="mb-5 flex items-start justify-between gap-4">
@@ -91,8 +132,8 @@ export default function ProgressOverview({ onOpenTab }: { onOpenTab?: (tab: "vis
             <ApexPath score={score} />
           </Card>
           <div className="grid grid-cols-2 gap-3">
-            <Metric label="Consistência" value={`${consistency}%`} detail={`${totalDone} de ${totalGoal} execuções`} Icon={CheckCircle2} emphasis />
-            <Metric label="Treinos" value={`${workoutsDone}/${planned.length}`} detail={`${workoutPct}% da semana`} Icon={Dumbbell} />
+            <Metric label="Consistência" value={loading ? "—" : `${consistency}%`} detail={`${totalDone} de ${totalGoal} execuções`} Icon={CheckCircle2} emphasis />
+            <Metric label="Treinos" value={trainingSummary.loading ? "—" : `${workoutsDone}/${trainingSummary.total}`} detail={trainingSummary.total ? `${workoutPct}% da semana` : "sem treino planejado"} Icon={Dumbbell} />
             <Metric label="Entregas hoje" value={`${tasksDone}/${todayTasks.length}`} detail="tarefas previstas" Icon={Target} />
             <Metric label="Energia" value={latestCheckin ? `${latestCheckin.energia}/5` : "—"} detail={latestCheckin ? "último check-in" : "registre no Hoje"} Icon={BatteryMedium} />
           </div>
@@ -104,14 +145,16 @@ export default function ProgressOverview({ onOpenTab }: { onOpenTab?: (tab: "vis
             {rows.slice(0, 6).map(({ habit, done, goal, pct }) => (
               <Card key={habit.id} className="p-4"><div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-control border" style={{ background: `${habit.color}14`, borderColor: `${habit.color}30` }}><LucideIcon name={habit.lucideIcon ?? "Circle"} size={17} color={habit.color} /></span><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-3"><p className="truncate text-[12px] font-semibold text-ink">{habit.name}</p><span className="font-stat text-[10px] text-ink-muted">{done}/{goal}</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface"><motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} className="h-full rounded-full" style={{ background: habit.color }} /></div></div><span className="font-stat text-[12px] font-medium" style={{ color: pct >= 100 ? habit.color : "var(--text-secondary)" }}>{pct}%</span></div></Card>
             ))}
+            {!loading && !rows.length && <Card className="p-8 text-center text-[10px] text-ink-muted lg:col-span-2">Crie hábitos em Planejamento para começar a medir sua consistência.</Card>}
           </div>
         </section>
 
         <section className="grid gap-4 xl:grid-cols-[1fr_.8fr]">
-          <div><SectionHeader eyebrow="Direção" title="Metas em movimento" /><div className="space-y-3">{goals.map((goal) => { const pct = goalProgress(goal); return <Card key={goal.id} className="p-4 sm:p-5"><div className="flex items-start gap-3"><IconTile Icon={Flag} active={pct >= 80} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-[13px] font-semibold text-ink">{goal.title}</p><p className="mt-1 text-[9px] text-ink-muted">Prazo {new Date(`${goal.targetDate}T12:00:00`).toLocaleDateString("pt-BR")}</p></div><span className="font-stat text-[12px] text-accent">{goal.current}/{goal.target} {goal.unit}</span></div><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-surface"><motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} className="h-full rounded-full bg-accent" /></div><div className="mt-2 flex items-center justify-between"><p className="text-[9px] text-ink-muted">{goal.linkedHabitIds.length} hábito(s) conectado(s)</p><p className="font-stat text-[9px] text-ink-secondary">{pct}%</p></div></div></div></Card>; })}</div></div>
+          <div><SectionHeader eyebrow="Direção" title="Metas em movimento" /><div className="space-y-3">{goals.map((goal) => { const pct = goalProgress(goal); return <Card key={goal.id} className="p-4 sm:p-5"><div className="flex items-start gap-3"><IconTile Icon={Flag} active={pct >= 80} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-[13px] font-semibold text-ink">{goal.title}</p><p className="mt-1 text-[9px] text-ink-muted">Prazo {new Date(`${goal.targetDate}T12:00:00`).toLocaleDateString("pt-BR")}</p></div><span className="font-stat text-[12px] text-accent">{goal.current}/{goal.target} {goal.unit}</span></div><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-surface"><motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} className="h-full rounded-full bg-accent" /></div><div className="mt-2 flex items-center justify-between"><p className="text-[9px] text-ink-muted">{goal.linkedHabitIds.length} hábito(s) conectado(s)</p><p className="font-stat text-[9px] text-ink-secondary">{pct}%</p></div></div></div></Card>; })}{!loading && !goals.length && <Card className="p-8 text-center text-[10px] text-ink-muted">Crie metas em Planejamento para acompanhar sua direção.</Card>}</div></div>
           <div><SectionHeader eyebrow="Próximo ajuste" title="Onde agir agora" /><Card className="p-5"><div className="mb-5 flex items-center gap-3"><IconTile Icon={Activity} active /><div><p className="text-[13px] font-semibold text-ink">Transforme dados em decisão</p><p className="mt-1 text-[10px] text-ink-muted">Não acompanhe por acompanhar.</p></div></div><div className="space-y-2">{[
                 { key: "habitos", title: "Ajustar metas dos hábitos", desc: "Revise frequência e consistência", action: () => onOpenTab?.("habitos") },
                 { key: "treino", title: "Revisar execução dos treinos", desc: "Veja o que foi concluído", action: () => navigateTo("treinos:semana") },
+                { key: "alimentacao", title: "Analisar consumo alimentar", desc: "Compare registros reais e metas", action: () => onOpenTab?.("alimentacao") },
                 { key: "revisao", title: "Fazer revisão semanal", desc: "Converta padrões em ajustes", action: () => onOpenTab?.("revisao") },
               ].map(({ key, title, desc, action }) => <button key={key} onClick={action} className="flex min-h-12 w-full items-center justify-between rounded-control border border-line bg-surface px-3 text-left"><span><span className="block text-[11px] font-semibold text-ink">{title}</span><span className="mt-0.5 block text-[9px] text-ink-muted">{desc}</span></span><ArrowRight size={14} className="text-accent" /></button>)}</div></Card></div>
         </section>

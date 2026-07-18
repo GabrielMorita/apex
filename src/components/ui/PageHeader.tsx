@@ -3,8 +3,12 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { CircleUserRound, Smile } from "lucide-react";
-import { useLocalStorage } from "@/lib/useLocalStorage";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { navigateTo } from "@/lib/navigationEvents";
+import { clearDayMood, loadDayMood, saveDayMood } from "@/lib/productivity/service";
+import { friendlyProductivityError } from "@/lib/productivity/errors";
+import { isoDate } from "@/lib/productivity/date";
+import NotificationBell from "@/components/notifications/NotificationBell";
 
 const MOODS = [
   { emoji: "😔", label: "Difícil" },
@@ -20,10 +24,13 @@ interface PageHeaderProps {
 }
 
 export default function PageHeader({ title, subtitle }: PageHeaderProps) {
+  const { user } = useAuth();
   const [longDate, setLongDate] = useState("");
   const [shortDate, setShortDate] = useState("");
   const [today, setToday] = useState("");
-  const [dayMoods, setDayMoods] = useLocalStorage<Record<string, number>>("apex-day-moods", {});
+  const [mood, setMoodValue] = useState<number | undefined>();
+  const [moodError, setMoodError] = useState("");
+  const [savingMood, setSavingMood] = useState(false);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -36,23 +43,48 @@ export default function PageHeader({ title, subtitle }: PageHeaderProps) {
     });
     setLongDate(long.charAt(0).toUpperCase() + long.slice(1));
     setShortDate(date.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }).replace(".", ""));
-    setToday(date.toISOString().split("T")[0]);
+    setToday(isoDate(date));
   }, []);
 
-  const mood = today ? dayMoods[today] : undefined;
+  useEffect(() => {
+    if (!user || !today) return;
+    let active = true;
+    setMoodError("");
+    void loadDayMood(user.id, today)
+      .then((value) => { if (active) setMoodValue(value ?? undefined); })
+      .catch((error) => { if (active) setMoodError(friendlyProductivityError(error)); });
+    return () => { active = false; };
+  }, [today, user]);
 
-  function setMood(value: number) {
-    setDayMoods((previous) => ({ ...previous, [today]: value }));
-    setOpen(false);
+  async function setMood(value: number) {
+    if (!user || !today || savingMood) return;
+    const previous = mood;
+    setMoodValue(value); setMoodError(""); setSavingMood(true);
+    try {
+      await saveDayMood(user.id, today, value);
+      window.dispatchEvent(new CustomEvent("apex-productivity-changed"));
+      setOpen(false);
+    } catch (error) {
+      setMoodValue(previous);
+      setMoodError(friendlyProductivityError(error));
+    } finally {
+      setSavingMood(false);
+    }
   }
 
-  function clearMood() {
-    setDayMoods((previous) => {
-      const next = { ...previous };
-      delete next[today];
-      return next;
-    });
-    setOpen(false);
+  async function clearMood() {
+    if (!user || !today || savingMood) return;
+    const previous = mood;
+    setMoodValue(undefined); setMoodError(""); setSavingMood(true);
+    try {
+      await clearDayMood(user.id, today);
+      setOpen(false);
+    } catch (error) {
+      setMoodValue(previous);
+      setMoodError(friendlyProductivityError(error));
+    } finally {
+      setSavingMood(false);
+    }
   }
 
   return (
@@ -95,7 +127,8 @@ export default function PageHeader({ title, subtitle }: PageHeaderProps) {
                         return (
                           <button
                             key={item.label}
-                            onClick={() => setMood(index + 1)}
+                            onClick={() => void setMood(index + 1)}
+                            disabled={savingMood || !user}
                             title={item.label}
                             aria-label={item.label}
                             className="flex h-10 items-center justify-center rounded-control border text-[19px] transition-transform hover:scale-105"
@@ -110,15 +143,17 @@ export default function PageHeader({ title, subtitle }: PageHeaderProps) {
                       })}
                     </div>
                     {mood !== undefined && (
-                      <button onClick={clearMood} className="mt-3 w-full min-h-8 text-center text-[10px] font-semibold text-ink-muted hover:text-ink-secondary">
+                      <button onClick={() => void clearMood()} disabled={savingMood} className="mt-3 w-full min-h-8 text-center text-[10px] font-semibold text-ink-muted hover:text-ink-secondary disabled:opacity-50">
                         Limpar seleção
                       </button>
                     )}
+                    {moodError && <p role="alert" className="mt-2 text-center text-[8px] text-red-300">{moodError}</p>}
                   </motion.div>
                 </>
               )}
             </AnimatePresence>
             </div>
+            <NotificationBell />
             <button
               onClick={() => navigateTo("configuracoes")}
               aria-label="Perfil e configurações"

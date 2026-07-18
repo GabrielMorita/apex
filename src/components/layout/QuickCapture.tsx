@@ -4,16 +4,11 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { CheckSquare, Lightbulb, Plus, X } from "lucide-react";
 import clsx from "clsx";
-import { useLocalStorage } from "@/lib/useLocalStorage";
-import { defaultTasks, type Task } from "@/data/extraData";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { isoDate } from "@/lib/productivity/date";
+import { createInboxItem, saveTask } from "@/lib/productivity/service";
 
-export interface InboxItem {
-  id: string;
-  type: "note" | "idea";
-  content: string;
-  createdAt: string;
-  archived?: boolean;
-}
+export type { InboxItem } from "@/lib/productivity/types";
 
 type CaptureType = "task" | "idea";
 
@@ -23,36 +18,33 @@ const TYPES = [
 ];
 
 export default function QuickCapture() {
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<CaptureType>("task");
   const [text, setText] = useState("");
   const [saved, setSaved] = useState(false);
-  const [, setTasks] = useLocalStorage<Task[]>("apex-tasks", defaultTasks);
-  const [, setInbox] = useLocalStorage<InboxItem[]>("apex-inbox", []);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const selected = TYPES.find((item) => item.id === type)!;
 
   function close() {
     setOpen(false);
     setText("");
     setSaved(false);
+    setError("");
   }
 
-  function save() {
+  async function save() {
     const content = text.trim();
-    if (!content) return;
+    if (!content || !user || saving) return;
     const now = new Date();
-    const id = `${type}-${now.getTime()}`;
-    const today = now.toISOString().split("T")[0];
-
-    if (type === "task") {
-      setTasks((previous) => [...previous, { id, name: content, frequency: { type: "once" }, status: "pending", date: today }]);
-    } else {
-      setInbox((previous) => [{ id, type: "idea", content, createdAt: now.toISOString() }, ...previous]);
-    }
-
-    setSaved(true);
-    setText("");
-    window.setTimeout(close, 550);
+    setSaving(true); setError("");
+    try {
+      if (type === "task") await saveTask(user.id, { id: null, name: content, time: "", frequency: { type: "once" }, date: isoDate(now), notes: "" });
+      else await createInboxItem(user.id, "idea", content);
+      setSaved(true); setText(""); window.dispatchEvent(new CustomEvent("apex-productivity-changed")); window.setTimeout(close, 550);
+    } catch { setError("Não foi possível salvar agora. Verifique sua conexão."); }
+    finally { setSaving(false); }
   }
 
   return (
@@ -81,7 +73,8 @@ export default function QuickCapture() {
               </div>
 
               <textarea autoFocus rows={4} value={text} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "Enter") save(); }} placeholder={selected.placeholder} className="min-h-[124px] w-full resize-none rounded-card border border-line bg-surface p-4 text-[14px] leading-relaxed text-ink outline-none placeholder:text-ink-faint focus:border-line-accent" />
-              <button onClick={save} disabled={!text.trim()} className="apex-button-primary mt-3 w-full disabled:cursor-not-allowed disabled:opacity-40">{saved ? "Salvo" : `Salvar em ${selected.label}`}</button>
+              {error && <p className="mt-3 rounded-control border border-red-400/20 bg-red-400/5 p-3 text-[9px] text-red-300">{error}</p>}
+              <button onClick={() => void save()} disabled={!text.trim() || !user || saving} className="apex-button-primary mt-3 w-full disabled:cursor-not-allowed disabled:opacity-40">{saving ? "Salvando..." : saved ? "Salvo" : `Salvar em ${selected.label}`}</button>
               <p className="mt-2 text-center text-[9px] text-ink-faint">Ctrl/⌘ + Enter para salvar</p>
             </motion.section>
           </>

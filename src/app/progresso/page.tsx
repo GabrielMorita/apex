@@ -1,19 +1,21 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { BarChart3, RefreshCw, Target } from "lucide-react";
+import { BarChart3, RefreshCw, Target, Utensils } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
 import WorkspaceTabs from "@/components/ui/WorkspaceTabs";
 import ProgressOverview from "@/components/workspaces/ProgressOverview";
 import HabitProgress from "@/components/modules/HabitProgress";
 import WeeklyReview from "@/components/modules/WeeklyReview";
+import NutritionProgress from "@/components/diet/NutritionProgress";
 import { useLocalStorage } from "@/lib/useLocalStorage";
 
-type ProgressTab = "visao" | "habitos" | "revisao";
+type ProgressTab = "visao" | "habitos" | "alimentacao" | "revisao";
 
 const TABS = [
   { id: "visao" as const, label: "Visão geral", description: "Score, metas e sinais da semana", Icon: BarChart3 },
   { id: "habitos" as const, label: "Hábitos", description: "Consistência e metas semanais", Icon: Target },
+  { id: "alimentacao" as const, label: "Alimentação", description: "Consumo real e histórico nutricional", Icon: Utensils },
   { id: "revisao" as const, label: "Revisão", description: "Transforme a semana em ajustes", Icon: RefreshCw },
 ];
 
@@ -28,6 +30,7 @@ export default function ProgressoPage() {
         <div className="embedded-module">
           {tab === "visao" && <ProgressOverview onOpenTab={setTab} />}
           {tab === "habitos" && <HabitProgress />}
+          {tab === "alimentacao" && <NutritionProgress />}
           {tab === "revisao" && <WeeklyReview />}
         </div>
       </div>

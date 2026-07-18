@@ -8,6 +8,8 @@ import WorkoutWeek from "@/components/modules/WorkoutWeek";
 import WorkoutHistory from "@/components/modules/WorkoutHistory";
 import WorkoutPlan from "@/components/modules/WorkoutPlan";
 import { useLocalStorage } from "@/lib/useLocalStorage";
+import ProfileDependencyNotice from "@/components/profile/ProfileDependencyNotice";
+import SensitiveDataNotice from "@/components/privacy/SensitiveDataNotice";
 
 type TrainingTab = "semana" | "plano" | "historico";
 
@@ -39,6 +41,8 @@ export default function TreinosPage() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-full">
       <PageHeader title="Treino" subtitle="Execução, periodização e histórico em uma única área." />
       <div className="apex-page space-y-5">
+        <SensitiveDataNotice area="Treino" />
+        <ProfileDependencyNotice feature="Treino" />
         <WorkspaceTabs tabs={TRAINING_TABS} active={tab} onChange={setTab} />
 
         <div className="embedded-module">

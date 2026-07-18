@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
+import ProfileDependencyNotice from "@/components/profile/ProfileDependencyNotice";
 import { useLocalStorage } from "@/lib/useLocalStorage";
 import {
   defaultDietGoals,
@@ -425,6 +426,7 @@ export default function DietaPage() {
       <PageHeader title="Dieta" subtitle="Seu plano alimentar, refeição por refeição" />
 
       <div className="apex-page max-w-3xl space-y-4 sm:space-y-5">
+        <ProfileDependencyNotice feature="Dieta" />
         <section className="apex-card-emphasis overflow-hidden">
           <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4 sm:px-5 sm:pt-5">
             <button onClick={() => setSelectedDate(addDays(selectedDate, -7))} aria-label="Semana anterior" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control border border-line text-ink-muted hover:bg-surface-hover hover:text-ink">

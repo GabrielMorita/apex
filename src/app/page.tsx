@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Sidebar from "@/components/layout/Sidebar";
 import MobileNavigation from "@/components/layout/MobileNavigation";
 import QuickCapture from "@/components/layout/QuickCapture";
-import { weekMetrics } from "@/data/mockData";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { APEX_NAVIGATE_EVENT } from "@/lib/navigationEvents";
+import { confirmDiscardChanges } from "@/lib/profile/navigationGuard";
+import { habitStreak, isoDate, shiftDate } from "@/lib/productivity/date";
+import { loadHabitEntries, loadHabits } from "@/lib/productivity/service";
 
 import DashboardPage from "@/app/dashboard/page";
 import PlanejamentoPage from "@/app/planejamento/page";
@@ -43,7 +46,7 @@ function resolveDestination(raw: string): Destination {
     revisao: { page: "progresso", section: "revisao" },
     treino: { page: "treinos", section: "semana" },
     periodizacao: { page: "treinos", section: "plano" },
-    biblioteca: { page: "planejamento", section: "agenda" },
+    biblioteca: { page: "planejamento", section: "biblioteca" },
     deepwork: { page: "dashboard" },
     diario: { page: "dashboard" },
   };
@@ -65,14 +68,17 @@ function storeSection(page: string, section?: string) {
 }
 
 export default function App() {
+  const { user, loading: authLoading } = useAuth();
   const [activePage, setActivePage] = useState("dashboard");
+  const [streakDias, setStreakDias] = useState(0);
   const PageComponent = PAGES[activePage] ?? DashboardPage;
 
-  function navigate(raw: string) {
+  const navigate = useCallback((raw: string) => {
     const destination = resolveDestination(raw);
+    if ((activePage === "configuracoes" || activePage === "dieta") && destination.page !== activePage && !confirmDiscardChanges()) return;
     storeSection(destination.page, destination.section);
     setActivePage(destination.page);
-  }
+  }, [activePage]);
 
   useEffect(() => {
     function onNavigate(event: Event) {
@@ -81,11 +87,41 @@ export default function App() {
     }
     window.addEventListener(APEX_NAVIGATE_EVENT, onNavigate);
     return () => window.removeEventListener(APEX_NAVIGATE_EVENT, onNavigate);
-  }, []);
+  }, [navigate]);
+
+  useEffect(() => {
+    if (authLoading || !user) {
+      if (!authLoading) setStreakDias(0);
+      return;
+    }
+    let active = true;
+    const today = isoDate(new Date());
+    void Promise.all([loadHabits(user.id), loadHabitEntries(user.id, shiftDate(today, -120), today)])
+      .then(([habits, entries]) => {
+        if (active) setStreakDias(habits.reduce((highest, habit) => Math.max(highest, habitStreak(entries, habit.id, today)), 0));
+      })
+      .catch(() => { if (active) setStreakDias(0); });
+    const onChanged = () => {
+      void Promise.all([loadHabits(user.id), loadHabitEntries(user.id, shiftDate(today, -120), today)])
+        .then(([habits, entries]) => { if (active) setStreakDias(habits.reduce((highest, habit) => Math.max(highest, habitStreak(entries, habit.id, today)), 0)); })
+        .catch(() => undefined);
+    };
+    window.addEventListener("apex-productivity-changed", onChanged);
+    return () => { active = false; window.removeEventListener("apex-productivity-changed", onChanged); };
+  }, [authLoading, user]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const destination = url.searchParams.get("destino");
+    if (!destination) return;
+    url.searchParams.delete("destino");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    navigate(destination);
+  }, [navigate]);
 
   return (
     <div className="flex min-h-screen bg-canvas lg:h-screen lg:overflow-hidden">
-      <Sidebar activePage={activePage} onNavigate={navigate} streakDias={weekMetrics.streakDias} />
+      <Sidebar activePage={activePage} onNavigate={navigate} streakDias={streakDias} />
       <main className="min-w-0 flex-1 lg:h-screen lg:overflow-hidden">
         <AnimatePresence mode="wait" initial={false}>
           <motion.div

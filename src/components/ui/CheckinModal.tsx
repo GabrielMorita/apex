@@ -3,15 +3,18 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import LucideIcon from "@/components/ui/LucideIcon";
-import { CHECKIN_FIELDS, type CheckinEntry } from "@/data/extraData";
+import { CHECKIN_FIELDS } from "@/data/extraData";
+import { isoDate } from "@/lib/productivity/date";
+import type { CheckinEntry } from "@/lib/productivity/types";
 
 interface Props {
   onComplete: (entry: CheckinEntry) => void;
   onSkip: () => void;
+  date?: string;
 }
 
-export default function CheckinModal({ onComplete, onSkip }: Props) {
-  const today = new Date().toISOString().split("T")[0];
+export default function CheckinModal({ onComplete, onSkip, date }: Props) {
+  const today = date ?? isoDate(new Date());
   const [values, setValues] = useState<Record<string, number>>({ energia: 3, sono: 3, humor: 3, estresse: 2, dorMuscular: 1 });
 
   return (

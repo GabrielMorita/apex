@@ -1,336 +1,123 @@
 "use client";
-import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pencil, X, Check, AlertCircle, Trash2, Target, BookOpen, CalendarRange } from "lucide-react";
-import LucideIcon from "@/components/ui/LucideIcon";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertCircle, CalendarRange, Check, Clock3, LoaderCircle, Pencil, Plus, Target, Trash2, X } from "lucide-react";
+import { useAuth } from "@/components/auth/AuthProvider";
 import BookCard from "@/components/reading/BookCard";
 import BookForm from "@/components/reading/BookForm";
-import { useLocalStorage } from "@/lib/useLocalStorage";
-import { defaultHabits, defaultPresets, getCurrentWeekDates, DOW_NAMES, FULL_DAY_NAMES, type Habit, type DayPreset, type DayException } from "@/data/mockData";
-import { defaultGoals, type Goal } from "@/data/extraData";
-import {
-  defaultReadingProjects, defaultReadingSessions, defaultReadingCycles,
-  completedBooksForGoal, completedBooksForCycle,
-  type ReadingProject, type ReadingSession, type ReadingCycle, type ReadingStatus,
-} from "@/data/readingData";
-
-function DayEditModal({ title, habitIds, allHabits, onSave, onClose, isException }: { title:string; habitIds:string[]; allHabits:Habit[]; onSave:(ids:string[])=>void; onClose:()=>void; isException?:boolean }) {
-  const [selected,setSelected] = useState<string[]>(habitIds);
-  function toggle(id:string){ setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]); }
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{background:"rgba(0,0,0,0.7)"}}>
-      <motion.div initial={{opacity:0,scale:0.96}} animate={{opacity:1,scale:1}} className="bg-apex-surface border border-apex-border rounded-2xl p-6 w-full max-w-sm">
-        <div className="flex items-center justify-between mb-1"><div><p className="text-[13px] font-medium text-apex-white">{title}</p>{isException&&<p className="text-[9px] text-gold mt-0.5">Exceção — não afeta o preset</p>}</div><button onClick={onClose} className="text-apex-faint hover:text-apex-muted"><X size={16}/></button></div>
-        <div className="space-y-1.5 my-4 max-h-64 overflow-y-auto">
-          {allHabits.map(h=>{
-            const on=selected.includes(h.id);
-            return <button key={h.id} onClick={()=>toggle(h.id)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors" style={{background:on?`${h.color}15`:"transparent",borderColor:on?h.color:"#1e1e1e"}}>
-              <div className="w-5 h-5 rounded border flex items-center justify-center" style={{background:on?h.color:"transparent",borderColor:on?h.color:"#333"}}>{on&&<Check size={10} color="#080808" strokeWidth={3}/>}</div>
-              <LucideIcon name={h.lucideIcon??"Circle"} size={13} color={on?h.color:"#555"}/>
-              <span className="text-[12px] flex-1 text-left" style={{color:on?"#f0f0f0":"#888"}}>{h.name}</span>
-              <span className="text-[9px] font-mono" style={{color:on?h.color:"#444"}}>{h.time}</span>
-            </button>;
-          })}
-        </div>
-        <div className="flex gap-2"><button onClick={()=>onSave(selected)} className="flex-1 py-2.5 bg-gold text-apex-bg rounded-xl text-[12px] font-medium hover:bg-amber-500 transition-colors">Salvar</button><button onClick={onClose} className="px-4 border border-apex-border text-apex-muted rounded-xl text-[12px] hover:border-apex-border2 transition-colors">Cancelar</button></div>
-      </motion.div>
-    </div>
-  );
-}
+import LucideIcon from "@/components/ui/LucideIcon";
+import { Card, SectionHeader } from "@/components/ui/primitives";
+import type { ReadingCycle, ReadingProject, ReadingStatus } from "@/data/readingData";
+import { completedBooksForCycle, completedBooksForGoal } from "@/data/readingData";
+import { currentWeekDates, habitIsScheduled, isoDate } from "@/lib/productivity/date";
+import { friendlyProductivityError } from "@/lib/productivity/errors";
+import { archiveGoal, archiveReadingProject, archiveTask, clearHabitDayPlan, loadGoals, loadHabitDayPlans, loadHabits, loadReadingData, loadTasks, saveGoal, saveHabitDayPlan, saveReadingCycle, saveReadingProject, saveTask } from "@/lib/productivity/service";
+import type { Goal, GoalDraft, Habit, HabitDayPlan, Task, TaskDraft, TaskFrequency } from "@/lib/productivity/types";
+import { loadTrainingTemplates } from "@/lib/training/service";
+import type { TrainingTemplate } from "@/lib/training/types";
 
 export type PlanningView = "agenda" | "metas" | "biblioteca";
+const DOW = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+const FULL_DOW = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
 export default function PlanningOverview({ view = "agenda" }: { view?: PlanningView }) {
-  const [habits]    = useLocalStorage<Habit[]>("apex-habits-today",defaultHabits);
-  const [presets,setPresets]       = useLocalStorage<DayPreset[]>("apex-day-presets",defaultPresets);
-  const [exceptions,setExceptions] = useLocalStorage<DayException[]>("apex-day-exceptions",[]);
-  const [goals,setGoals]           = useLocalStorage<Goal[]>("apex-goals",defaultGoals);
-  const [mounted,setMounted]       = useState(false);
-  const [editPreset,setEditPreset] = useState<number|null>(null);
-  const [editExc,setEditExc]       = useState<string|null>(null);
-  const [showGoalForm,setShowGoalForm] = useState(false);
-  const [editGoalId,setEditGoalId]     = useState<string|null>(null);
-  useEffect(()=>setMounted(true),[]);
-
-  const weekDates = getCurrentWeekDates();
-
-  function savePreset(dow:number,ids:string[]){ setPresets(p=>p.some(x=>x.dow===dow)?p.map(x=>x.dow===dow?{...x,habitIds:ids}:x):[...p,{dow,habitIds:ids}]); setEditPreset(null); }
-  function saveException(date:string,ids:string[]){ setExceptions(p=>p.some(x=>x.date===date)?p.map(x=>x.date===date?{...x,habitIds:ids}:x):[...p,{date,habitIds:ids}]); setEditExc(null); }
-  function removeException(date:string){ setExceptions(p=>p.filter(x=>x.date!==date)); }
-
-  function saveGoal(data:Omit<Goal,"id">){
-    if(editGoalId){ setGoals(p=>p.map(g=>g.id===editGoalId?{...g,...data}:g)); setEditGoalId(null); }
-    else { setGoals(p=>[...p,{...data,id:`g${Date.now()}`}]); setShowGoalForm(false); }
-  }
-
-  if(!mounted) return null;
-
-  return (
-    <motion.div initial={{opacity:0}} animate={{opacity:1}} className="flex-1">
-      <div className="mx-auto max-w-4xl space-y-10">
-
-        {/* Presets */}
-        {view === "agenda" && <section>
-          <p className="text-[9px] text-apex-faint tracking-[2px] uppercase mb-4">Presets semanais</p>
-          <div className="space-y-2">
-            {Array.from({length:7},(_,i)=>i).map(dow=>{
-              const preset=presets.find(p=>p.dow===dow);
-              const pHabits=habits.filter(h=>(preset?.habitIds??[]).includes(h.id)).sort((a,b)=>a.time.localeCompare(b.time));
-              return (
-                <div key={dow} className="bg-apex-card border border-apex-border rounded-xl px-4 py-3 flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-apex-surface border border-apex-border flex items-center justify-center flex-shrink-0"><span className="text-[10px] font-medium text-apex-muted">{DOW_NAMES[dow]}</span></div>
-                  <div className="flex-1 min-w-0">
-                    {pHabits.length===0?<p className="text-[11px] text-apex-faint italic">Nenhum hábito</p>:(
-                      <div className="flex flex-wrap gap-1.5">
-                        {pHabits.map(h=><span key={h.id} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px]" style={{background:`${h.color}18`,color:h.color,border:`0.5px solid ${h.color}40`}}><LucideIcon name={h.lucideIcon??"Circle"} size={10} color={h.color}/>{h.name}</span>)}
-                      </div>
-                    )}
-                  </div>
-                  <button onClick={()=>setEditPreset(dow)} className="p-1.5 text-apex-faint hover:text-gold transition-colors flex-shrink-0"><Pencil size={13}/></button>
-                </div>
-              );
-            })}
-          </div>
-        </section>}
-
-        {/* Exceções */}
-        {view === "agenda" && <section>
-          <p className="text-[9px] text-apex-faint tracking-[2px] uppercase mb-1">Exceções desta semana</p>
-          <p className="text-[10px] text-apex-faint mb-4">Edite um dia específico sem mudar o preset</p>
-          <div className="space-y-2">
-            {weekDates.map((date,i)=>{
-              const dow=(i+1)%7;
-              const exc=exceptions.find(e=>e.date===date);
-              const isToday=date===new Date().toISOString().split("T")[0];
-              const ids=exc?.habitIds??presets.find(p=>p.dow===dow)?.habitIds??[];
-              const activeHabits=habits.filter(h=>ids.includes(h.id)).sort((a,b)=>a.time.localeCompare(b.time));
-              return (
-                <div key={date} className={`bg-apex-card border rounded-xl px-4 py-3 flex items-center gap-4 ${isToday?"border-gold/30":exc?"border-amber-900/40":"border-apex-border"}`}>
-                  <div className={`w-10 h-10 rounded-lg flex flex-col items-center justify-center border flex-shrink-0 ${isToday?"bg-apex-gold-bg border-gold":"bg-apex-surface border-apex-border"}`}>
-                    <span className={`text-[8px] ${isToday?"text-gold":"text-apex-faint"}`}>{DOW_NAMES[dow]}</span>
-                    <span className={`text-[13px] font-medium ${isToday?"text-apex-white":"text-apex-muted"}`}>{new Date(date).getDate()}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    {exc&&<div className="flex items-center gap-1 mb-1"><AlertCircle size={9} className="text-gold"/><span className="text-[8px] text-gold">editado</span></div>}
-                    {activeHabits.length===0?<p className="text-[11px] text-apex-faint italic">Nenhum hábito</p>:(
-                      <div className="flex flex-wrap gap-1.5">{activeHabits.map(h=><span key={h.id} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px]" style={{background:`${h.color}18`,color:h.color,border:`0.5px solid ${h.color}40`}}><LucideIcon name={h.lucideIcon??"Circle"} size={10} color={h.color}/>{h.name}</span>)}</div>
-                    )}
-                  </div>
-                  <div className="flex gap-1 flex-shrink-0">
-                    <button onClick={()=>setEditExc(date)} className="p-1.5 text-apex-faint hover:text-gold transition-colors"><Pencil size={13}/></button>
-                    {exc&&<button onClick={()=>removeException(date)} className="p-1.5 text-apex-faint hover:text-red-400 transition-colors"><X size={13}/></button>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>}
-
-        {/* Metas */}
-        {view === "metas" && <section>
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-[9px] text-apex-faint tracking-[2px] uppercase">Metas de longo prazo</p>
-            {!showGoalForm&&!editGoalId&&<button onClick={()=>setShowGoalForm(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-gold text-apex-bg rounded-lg text-[10px] font-medium hover:bg-amber-500 transition-colors"><Plus size={11}/>Nova meta</button>}
-          </div>
-          <AnimatePresence>
-            {(showGoalForm||editGoalId)&&(
-              <GoalForm initial={goals.find(g=>g.id===editGoalId)} habits={habits} onSave={saveGoal} onCancel={()=>{setShowGoalForm(false);setEditGoalId(null);}}/>
-            )}
-          </AnimatePresence>
-          <div className="space-y-3">
-            {goals.map(goal=>{
-              const isRed=goal.target<goal.current;
-              const pct=isRed?Math.min(100,Math.max(0,((goal.current*1.2-goal.current)/(goal.current*1.2-goal.target))*100)):Math.min(100,Math.max(0,(goal.current/goal.target)*100));
-              const linked=habits.filter(h=>goal.linkedHabitIds.includes(h.id));
-              const days=Math.ceil((new Date(goal.targetDate).getTime()-Date.now())/86400000);
-              return (
-                <div key={goal.id} className="bg-apex-card border border-apex-border rounded-xl p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2"><Target size={14} className="text-gold"/><p className="text-[13px] font-medium text-apex-white">{goal.title}</p></div>
-                    <div className="flex gap-1"><button onClick={()=>setEditGoalId(goal.id)} className="p-1 text-apex-faint hover:text-gold transition-colors"><Pencil size={12}/></button><button onClick={()=>setGoals(p=>p.filter(g=>g.id!==goal.id))} className="p-1 text-apex-faint hover:text-red-400 transition-colors"><Trash2 size={12}/></button></div>
-                  </div>
-                  <div className="flex justify-between mb-1.5"><span className="text-[11px] text-apex-muted">{goal.current}{goal.unit} → {goal.target}{goal.unit}</span><span className="text-[10px] text-gold font-mono">{Math.round(pct)}%</span></div>
-                  <div className="h-1.5 bg-apex-border rounded-full overflow-hidden mb-3"><motion.div initial={{width:0}} animate={{width:`${pct}%`}} className="h-full bg-gold rounded-full"/></div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex flex-wrap gap-1.5">{linked.map(h=><span key={h.id} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px]" style={{background:`${h.color}18`,color:h.color}}><LucideIcon name={h.lucideIcon??"Circle"} size={9} color={h.color}/>{h.name}</span>)}</div>
-                    <span className="text-[9px] text-apex-faint flex-shrink-0">{days>0?`${days} dias`:""}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>}
-
-        {/* Biblioteca de Leitura */}
-        {view === "biblioteca" && <ReadingProjectsSection />}
-      </div>
-
-      {view === "agenda" && <AnimatePresence>
-        {editPreset!==null&&<DayEditModal title={`Preset — ${FULL_DAY_NAMES[editPreset]}`} habitIds={presets.find(p=>p.dow===editPreset)?.habitIds??[]} allHabits={habits} onSave={(ids)=>savePreset(editPreset,ids)} onClose={()=>setEditPreset(null)}/>}
-        {editExc!==null&&<DayEditModal title={`Exceção — ${editExc}`} habitIds={exceptions.find(e=>e.date===editExc)?.habitIds??presets.find(p=>p.dow===(weekDates.indexOf(editExc)+1)%7)?.habitIds??[]} allHabits={habits} onSave={(ids)=>saveException(editExc,ids)} onClose={()=>setEditExc(null)} isException/>}
-      </AnimatePresence>}
-    </motion.div>
-  );
-}
-
-function GoalForm({ initial, habits, onSave, onCancel }: { initial?:Goal; habits:Habit[]; onSave:(d:Omit<Goal,"id">)=>void; onCancel:()=>void }) {
-  const [title,setTitle]   = useState(initial?.title??"");
-  const [date,setDate]     = useState(initial?.targetDate??"");
-  const [cur,setCur]       = useState(initial?.current??0);
-  const [tgt,setTgt]       = useState(initial?.target??0);
-  const [unit,setUnit]     = useState(initial?.unit??"kg");
-  const [linked,setLinked] = useState<string[]>(initial?.linkedHabitIds??[]);
-  function toggle(id:string){ setLinked(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]); }
-  function handleSave(){ if(!title.trim()||!date) return; onSave({title:title.trim(),targetDate:date,current:cur,target:tgt,unit,linkedHabitIds:linked,linkedWorkoutTemplateIds:[]}); }
-  return (
-    <motion.div initial={{opacity:0,y:-6}} animate={{opacity:1,y:0}} className="bg-apex-card border border-gold/30 rounded-xl p-4 space-y-3 mb-4">
-      <input type="text" placeholder="Título da meta..." value={title} onChange={(e)=>setTitle(e.target.value)} className="w-full bg-apex-surface border border-apex-border rounded-lg px-3 py-2 text-[12px] text-apex-white placeholder-apex-faint outline-none focus:border-gold"/>
-      <div className="grid grid-cols-2 gap-2">
-        <div><p className="text-[9px] text-apex-faint uppercase tracking-wider mb-1">Atual</p><input type="number" value={cur} onChange={(e)=>setCur(+e.target.value)} className="w-full bg-apex-surface border border-apex-border rounded-lg px-3 py-2 text-[12px] text-apex-white outline-none focus:border-gold"/></div>
-        <div><p className="text-[9px] text-apex-faint uppercase tracking-wider mb-1">Meta</p><input type="number" value={tgt} onChange={(e)=>setTgt(+e.target.value)} className="w-full bg-apex-surface border border-apex-border rounded-lg px-3 py-2 text-[12px] text-apex-white outline-none focus:border-gold"/></div>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <input type="text" placeholder="Unidade (kg, min, km)" value={unit} onChange={(e)=>setUnit(e.target.value)} className="bg-apex-surface border border-apex-border rounded-lg px-3 py-2 text-[12px] text-apex-white placeholder-apex-faint outline-none focus:border-gold"/>
-        <input type="date" value={date} onChange={(e)=>setDate(e.target.value)} className="bg-apex-surface border border-apex-border rounded-lg px-3 py-2 text-[12px] text-apex-white outline-none focus:border-gold"/>
-      </div>
-      <div>
-        <p className="text-[9px] text-apex-faint uppercase tracking-wider mb-2">Vincular hábitos</p>
-        <div className="flex flex-wrap gap-1.5">{habits.map(h=>{const on=linked.includes(h.id); return <button key={h.id} onClick={()=>toggle(h.id)} className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] border transition-colors" style={{background:on?`${h.color}18`:"transparent",borderColor:on?h.color:"#1e1e1e",color:on?h.color:"#888"}}><LucideIcon name={h.lucideIcon??"Circle"} size={10} color={on?h.color:"#555"}/>{h.name}</button>;})}</div>
-      </div>
-      <div className="flex gap-2">
-        <button onClick={handleSave} className="flex-1 py-2 bg-gold text-apex-bg rounded-lg text-[11px] font-medium hover:bg-amber-500 transition-colors">Salvar meta</button>
-        <button onClick={onCancel} className="px-4 border border-apex-border text-apex-muted rounded-lg text-[11px] hover:border-apex-border2 transition-colors">Cancelar</button>
-      </div>
-    </motion.div>
-  );
-}
-
-// ── Projetos de Leitura (Planejamento) ───────────────────────
-function ReadingProjectsSection() {
-  const [projects, setProjects] = useLocalStorage<ReadingProject[]>("apex-reading-projects", defaultReadingProjects);
-  const [sessions]              = useLocalStorage<ReadingSession[]>("apex-reading-sessions", defaultReadingSessions);
-  const [cycles, setCycles]     = useLocalStorage<ReadingCycle[]>("apex-reading-cycles", defaultReadingCycles);
-  const [goals]                 = useLocalStorage<Goal[]>("apex-goals", defaultGoals);
-
-  const [showForm, setShowForm] = useState(false);
-  const [editId, setEditId]     = useState<string | null>(null);
+  const { user, loading: authLoading } = useAuth();
+  const [habits, setHabits] = useState<Habit[]>([]);
+  const [plans, setPlans] = useState<HabitDayPlan[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [trainingTemplates, setTrainingTemplates] = useState<TrainingTemplate[]>([]);
+  const [projects, setProjects] = useState<ReadingProject[]>([]);
+  const [sessions, setSessions] = useState<Awaited<ReturnType<typeof loadReadingData>>["sessions"]>([]);
+  const [cycles, setCycles] = useState<ReadingCycle[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [editingDay, setEditingDay] = useState<string | null>(null);
+  const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
+  const [goalDraft, setGoalDraft] = useState<GoalDraft | null>(null);
+  const [bookDraft, setBookDraft] = useState<ReadingProject | "new" | null>(null);
   const [showCycleForm, setShowCycleForm] = useState(false);
+  const dates = useMemo(() => currentWeekDates(), []);
 
-  function handleSave(data: Omit<ReadingProject, "id" | "createdAt" | "updatedAt">) {
-    const now = new Date().toISOString();
-    if (editId) { setProjects(p => p.map(b => b.id === editId ? { ...b, ...data, updatedAt: now } : b)); setEditId(null); }
-    else { setProjects(p => [...p, { ...data, id: `bk${Date.now()}`, createdAt: now, updatedAt: now }]); setShowForm(false); }
+  const refresh = useCallback(async () => {
+    if (!user) return;
+    const [loadedHabits, loadedPlans, loadedTasks, loadedGoals, loadedTemplates, reading] = await Promise.all([
+      loadHabits(user.id), loadHabitDayPlans(user.id, dates[0], dates[6]), loadTasks(user.id), loadGoals(user.id), loadTrainingTemplates(user.id), loadReadingData(user.id),
+    ]);
+    setHabits(loadedHabits); setPlans(loadedPlans); setTasks(loadedTasks); setGoals(loadedGoals); setTrainingTemplates(loadedTemplates);
+    setProjects(reading.projects); setSessions(reading.sessions); setCycles(reading.cycles);
+  }, [dates, user]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) { setLoading(false); setError("Sua sessão não está disponível. Entre novamente."); return; }
+    let active = true; setLoading(true); setError("");
+    void refresh().catch((loadError) => { if (active) setError(friendlyProductivityError(loadError)); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [authLoading, refresh, user]);
+
+  async function withSave(action: () => Promise<void>) {
+    if (saving) return; setSaving(true); setError("");
+    try { await action(); await refresh(); window.dispatchEvent(new CustomEvent("apex-productivity-changed")); }
+    catch (saveError) { setError(friendlyProductivityError(saveError)); }
+    finally { setSaving(false); }
   }
-  function setStatus(id: string, status: ReadingStatus) {
-    const today = new Date().toISOString().split("T")[0];
-    setProjects(p => p.map(b => b.id === id ? { ...b, status, completedAt: status === "completed" ? (b.completedAt ?? today) : (status === "active" ? undefined : b.completedAt), updatedAt: new Date().toISOString() } : b));
-  }
 
-  const editingBook = projects.find(b => b.id === editId);
-  const readingGoals = goals.filter(g => g.unit.toLowerCase().includes("livro") || projects.some(p => p.linkedGoalId === g.id));
+  if (loading) return <Card className="flex items-center gap-2 p-5 text-[10px] text-ink-muted"><LoaderCircle size={14} className="animate-spin text-accent" />Carregando Planejamento...</Card>;
+  if (!user) return <Card className="p-5 text-[10px] text-red-300">{error}</Card>;
 
-  return (
-    <section>
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-[9px] text-apex-faint tracking-[2.5px] uppercase">Biblioteca de leitura</p>
-        {!showForm && !editId && (
-          <button onClick={() => setShowForm(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-gold text-apex-bg rounded-lg text-[10px] font-medium hover:bg-amber-500 transition-colors">
-            <Plus size={11} /> Novo livro
-          </button>
-        )}
-      </div>
+  return <div className="space-y-8">
+    {error && <p className="flex items-center gap-2 rounded-control border border-red-400/20 bg-red-400/5 p-3 text-[9px] text-red-300"><AlertCircle size={13} />{error}</p>}
+    {view === "agenda" && <AgendaSection habits={habits} plans={plans} tasks={tasks} dates={dates} saving={saving} onEditDay={setEditingDay} onNewTask={() => setTaskDraft(emptyTask())} onEditTask={(task) => setTaskDraft(taskToDraft(task))} onArchiveTask={(task) => void withSave(async () => { if (window.confirm(`Arquivar “${task.name}”?`)) await archiveTask(user.id, task.id); })} />}
+    {view === "metas" && <GoalsSection goals={goals} habits={habits} onNew={() => setGoalDraft(emptyGoal())} onEdit={(goal) => setGoalDraft({ ...goal, id: goal.id })} onArchive={(goal) => void withSave(async () => { if (window.confirm(`Arquivar a meta “${goal.title}”?`)) await archiveGoal(user.id, goal.id); })} />}
+    {view === "biblioteca" && <ReadingSection goals={goals} projects={projects} sessions={sessions} cycles={cycles} onNew={() => setBookDraft("new")} onEdit={setBookDraft} onStatus={(project, status) => void withSave(async () => { await saveReadingProject(user.id, { ...project, status, completedAt: status === "completed" ? (project.completedAt ?? isoDate(new Date())) : status === "active" ? undefined : project.completedAt }, project.id); })} onArchive={(project) => void withSave(async () => { if (window.confirm(`Arquivar “${project.title}”?`)) await archiveReadingProject(user.id, project.id); })} onNewCycle={() => setShowCycleForm(true)} />}
 
-      {/* metas anuais de leitura (progresso computado) */}
-      {readingGoals.length > 0 && (
-        <div className="space-y-2 mb-4">
-          {readingGoals.map(g => {
-            const done = completedBooksForGoal(projects, g.id);
-            const pct = g.target > 0 ? Math.min(100, Math.round((done / g.target) * 100)) : 0;
-            return (
-              <div key={g.id} className="surface-card rounded-xl p-3">
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-2"><Target size={12} className="text-gold" /><span className="text-[11px] text-apex-white">{g.title}</span></div>
-                  <span className="text-[10px] font-stat text-gold">{done}/{g.target} livros</span>
-                </div>
-                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(122,104,78,0.2)" }}>
-                  <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} className="h-full bg-gold rounded-full" />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <AnimatePresence>
-        {(showForm || editId) && <BookForm initial={editingBook} goals={goals} cycles={cycles} onSave={handleSave} onCancel={() => { setShowForm(false); setEditId(null); }} />}
-      </AnimatePresence>
-
-      {/* livros em modo planning */}
-      <div className="space-y-2.5">
-        {projects.filter(b => b.status !== "abandoned").map(b => (
-          <BookCard key={b.id} book={b} sessions={sessions} mode="planning"
-            onEdit={() => setEditId(b.id)} onStatus={(s) => setStatus(b.id, s)}
-            onDelete={() => setProjects(p => p.filter(x => x.id !== b.id))} />
-        ))}
-        {projects.length === 0 && <p className="text-[11px] text-apex-faint italic py-3">Nenhum livro cadastrado. Adicione um para planejar a leitura.</p>}
-      </div>
-
-      {/* ciclos trimestrais */}
-      <div className="mt-6">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-[9px] text-apex-faint tracking-[2.5px] uppercase flex items-center gap-1.5"><CalendarRange size={11} /> Ciclos trimestrais</p>
-          {!showCycleForm && <button onClick={() => setShowCycleForm(true)} className="text-[10px] text-gold hover:opacity-80 transition-opacity">+ ciclo</button>}
-        </div>
-        <AnimatePresence>
-          {showCycleForm && <CycleForm onSave={(c) => { setCycles(p => [...p, { ...c, id: `cy${Date.now()}` }]); setShowCycleForm(false); }} onCancel={() => setShowCycleForm(false)} />}
-        </AnimatePresence>
-        <div className="space-y-2">
-          {cycles.map(c => {
-            const done = completedBooksForCycle(projects, c);
-            const pct = c.targetBooks > 0 ? Math.min(100, Math.round((done / c.targetBooks) * 100)) : 0;
-            return (
-              <div key={c.id} className="surface-card rounded-xl p-3">
-                <div className="flex items-center justify-between mb-1.5">
-                  <div>
-                    <span className="text-[11px] text-apex-white">{c.label}</span>
-                    <span className="text-[9px] text-apex-faint ml-2 font-stat">{c.startDate} → {c.endDate}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-stat text-gold">{done}/{c.targetBooks}</span>
-                    <button onClick={() => setCycles(p => p.filter(x => x.id !== c.id))} className="text-apex-faint hover:text-red-400 transition-colors"><Trash2 size={11} /></button>
-                  </div>
-                </div>
-                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(122,104,78,0.2)" }}>
-                  <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} className="h-full bg-gold rounded-full" />
-                </div>
-              </div>
-            );
-          })}
-          {cycles.length === 0 && !showCycleForm && <p className="text-[10px] text-apex-faint italic">Nenhum ciclo. Ex: "Q1 2026 — 4 livros".</p>}
-        </div>
-      </div>
-    </section>
-  );
+    {editingDay && <DayPlanModal date={editingDay} habits={habits} selectedIds={habits.filter((habit) => habitIsScheduled(habit, editingDay, plans)).map((habit) => habit.id)} hasOverride={plans.some((plan) => plan.date === editingDay)} saving={saving} onSave={(ids) => void withSave(async () => { await saveHabitDayPlan(editingDay, ids); setEditingDay(null); })} onReset={() => void withSave(async () => { await clearHabitDayPlan(user.id, editingDay); setEditingDay(null); })} onClose={() => setEditingDay(null)} />}
+    {taskDraft && <TaskForm draft={taskDraft} setDraft={setTaskDraft} saving={saving} onSave={() => void withSave(async () => { await saveTask(user.id, taskDraft); setTaskDraft(null); })} onClose={() => setTaskDraft(null)} />}
+    {goalDraft && <GoalForm draft={goalDraft} setDraft={setGoalDraft} habits={habits} templates={trainingTemplates} saving={saving} onSave={() => void withSave(async () => { await saveGoal(goalDraft); setGoalDraft(null); })} onClose={() => setGoalDraft(null)} />}
+    {bookDraft && <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/75 p-4 backdrop-blur-sm sm:items-center"><div className="max-h-[95vh] w-full max-w-2xl overflow-y-auto"><BookForm initial={bookDraft === "new" ? undefined : bookDraft} goals={goals} cycles={cycles} onSave={(data) => void withSave(async () => { await saveReadingProject(user.id, data, bookDraft === "new" ? null : bookDraft.id); setBookDraft(null); })} onCancel={() => setBookDraft(null)} /></div></div>}
+    {showCycleForm && <CycleForm saving={saving} onSave={(cycle) => void withSave(async () => { await saveReadingCycle(user.id, cycle); setShowCycleForm(false); })} onClose={() => setShowCycleForm(false)} />}
+  </div>;
 }
 
-function CycleForm({ onSave, onCancel }: { onSave: (c: Omit<ReadingCycle, "id">) => void; onCancel: () => void }) {
-  const [label, setLabel] = useState("");
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
-  const [target, setTarget] = useState(4);
-  const inputCls = "w-full bg-apex-surface border border-apex-border rounded-lg px-3 py-2 text-[12px] text-apex-white placeholder-apex-faint outline-none focus:border-gold transition-colors";
-  return (
-    <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="surface-card border border-gold/30 rounded-xl p-3 space-y-2 mb-3">
-      <input type="text" placeholder='Nome (ex: Q1 2026)' value={label} onChange={(e) => setLabel(e.target.value)} className={inputCls} />
-      <div className="grid grid-cols-3 gap-2">
-        <div><p className="text-[8px] text-apex-faint uppercase mb-1">Início</p><input type="date" value={start} onChange={(e) => setStart(e.target.value)} className={inputCls} /></div>
-        <div><p className="text-[8px] text-apex-faint uppercase mb-1">Fim</p><input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className={inputCls} /></div>
-        <div><p className="text-[8px] text-apex-faint uppercase mb-1">Livros</p><input type="number" value={target} onChange={(e) => setTarget(+e.target.value)} className={inputCls} /></div>
-      </div>
-      <div className="flex gap-2">
-        <button onClick={() => { if (label.trim() && start && end) onSave({ label: label.trim(), startDate: start, endDate: end, targetBooks: target }); }} className="flex-1 py-2 bg-gold text-apex-bg rounded-lg text-[11px] font-medium hover:bg-amber-500 transition-colors">Criar ciclo</button>
-        <button onClick={onCancel} className="px-4 border border-apex-border text-apex-muted rounded-lg text-[11px] hover:border-apex-border2 transition-colors">Cancelar</button>
-      </div>
-    </motion.div>
-  );
+function AgendaSection({ habits, plans, tasks, dates, saving, onEditDay, onNewTask, onEditTask, onArchiveTask }: { habits: Habit[]; plans: HabitDayPlan[]; tasks: Task[]; dates: string[]; saving: boolean; onEditDay: (date: string) => void; onNewTask: () => void; onEditTask: (task: Task) => void; onArchiveTask: (task: Task) => void }) {
+  const today = isoDate(new Date());
+  return <><section><SectionHeader eyebrow="Rotina derivada das frequências" title="Semana atual" /><div className="space-y-2">{dates.map((date) => { const rows = habits.filter((habit) => habitIsScheduled(habit, date, plans)); const override = plans.some((plan) => plan.date === date); const dateObject = new Date(`${date}T12:00:00`); return <Card key={date} emphasis={date === today} className="p-4"><div className="flex items-center gap-3"><span className={`flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-control border ${date === today ? "border-line-accent bg-accent-subtle text-accent" : "border-line text-ink-muted"}`}><span className="text-[7px] uppercase">{DOW[dateObject.getDay()]}</span><span className="font-stat text-[11px]">{date.slice(8, 10)}</span></span><div className="min-w-0 flex-1"><div className="flex flex-wrap gap-1.5">{rows.length ? rows.map((habit) => <span key={habit.id} className="flex items-center gap-1 rounded-full border px-2 py-1 text-[8px]" style={{ color: habit.color, borderColor: `${habit.color}35`, background: `${habit.color}10` }}><LucideIcon name={habit.lucideIcon} size={9} color={habit.color} />{habit.name}</span>) : <span className="text-[9px] text-ink-faint">Nenhum hábito planejado</span>}</div>{override && <p className="mt-2 text-[7px] font-semibold uppercase text-accent">Dia personalizado</p>}</div><button type="button" onClick={() => onEditDay(date)} className="flex h-9 w-9 items-center justify-center rounded-control border border-line text-ink-muted"><Pencil size={12} /></button></div></Card>; })}</div></section>
+    <section><SectionHeader eyebrow="Tarefas e lembretes" title="Planejamento de tarefas" action={<button type="button" onClick={onNewTask} className="apex-button-primary"><Plus size={12} />Nova tarefa</button>} />{tasks.length === 0 ? <Card className="p-8 text-center text-[9px] text-ink-muted">Nenhuma tarefa planejada. A Captura rápida também salva tarefas aqui.</Card> : <div className="grid gap-3 lg:grid-cols-2">{tasks.map((task) => <Card key={task.id} className="p-4"><div className="flex items-start gap-3"><Clock3 size={14} className="mt-0.5 text-accent" /><div className="min-w-0 flex-1"><p className="text-[11px] font-semibold text-ink">{task.name}</p><p className="mt-1 text-[8px] text-ink-muted">{taskFrequencyLabel(task.frequency)}{task.date ? ` · ${task.date}` : ""}{task.time ? ` · ${task.time}` : ""}</p>{task.notes && <p className="mt-2 text-[8px] text-ink-faint">{task.notes}</p>}</div><div className="flex gap-1"><button type="button" onClick={() => onEditTask(task)} className="flex h-8 w-8 items-center justify-center rounded-control border border-line text-ink-muted"><Pencil size={11} /></button><button type="button" disabled={saving} onClick={() => onArchiveTask(task)} className="flex h-8 w-8 items-center justify-center rounded-control border border-line text-ink-muted hover:text-red-300"><Trash2 size={11} /></button></div></div></Card>)}</div>}</section></>;
 }
+
+function GoalsSection({ goals, habits, onNew, onEdit, onArchive }: { goals: Goal[]; habits: Habit[]; onNew: () => void; onEdit: (goal: Goal) => void; onArchive: (goal: Goal) => void }) {
+  return <section><SectionHeader eyebrow="Criadas no Planejamento, acompanhadas no Progresso" title="Metas de longo prazo" action={<button type="button" onClick={onNew} className="apex-button-primary"><Plus size={12} />Nova meta</button>} />{goals.length === 0 ? <Card className="p-10 text-center"><Target size={22} className="mx-auto text-ink-faint" /><p className="mt-3 text-[12px] font-semibold text-ink-secondary">Nenhuma meta criada</p><p className="mt-2 text-[9px] text-ink-muted">Defina resultados mensuráveis e conecte hábitos ou fichas de treino.</p></Card> : <div className="grid gap-3 lg:grid-cols-2">{goals.map((goal) => { const progress = Math.max(0, Math.min(100, (goal.current / goal.target) * 100)); const linked = habits.filter((habit) => goal.linkedHabitIds.includes(habit.id)); return <Card key={goal.id} emphasis={goal.status === "completed"} className="p-4"><div className="flex items-start gap-3"><Target size={15} className="mt-0.5 text-accent" /><div className="min-w-0 flex-1"><p className="text-[12px] font-semibold text-ink">{goal.title}</p><p className="mt-1 font-stat text-[9px] text-ink-muted">{goal.current} → {goal.target} {goal.unit} · prazo {goal.targetDate}</p></div><button type="button" onClick={() => onEdit(goal)} className="flex h-8 w-8 items-center justify-center rounded-control border border-line text-ink-muted"><Pencil size={11} /></button><button type="button" onClick={() => onArchive(goal)} className="flex h-8 w-8 items-center justify-center rounded-control border border-line text-ink-muted hover:text-red-300"><Trash2 size={11} /></button></div><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-surface"><span className="block h-full rounded-full bg-accent" style={{ width: `${progress}%` }} /></div><div className="mt-3 flex flex-wrap gap-1.5">{linked.map((habit) => <span key={habit.id} className="rounded-full border px-2 py-1 text-[7px]" style={{ color: habit.color, borderColor: `${habit.color}35` }}>{habit.name}</span>)}{goal.linkedWorkoutTemplateIds.length > 0 && <span className="rounded-full border border-line px-2 py-1 text-[7px] text-ink-muted">{goal.linkedWorkoutTemplateIds.length} ficha(s)</span>}</div></Card>; })}</div>}</section>;
+}
+
+function ReadingSection({ goals, projects, sessions, cycles, onNew, onEdit, onStatus, onArchive, onNewCycle }: { goals: Goal[]; projects: ReadingProject[]; sessions: Awaited<ReturnType<typeof loadReadingData>>["sessions"]; cycles: ReadingCycle[]; onNew: () => void; onEdit: (project: ReadingProject) => void; onStatus: (project: ReadingProject, status: ReadingStatus) => void; onArchive: (project: ReadingProject) => void; onNewCycle: () => void }) {
+  const readingGoals = goals.filter((goal) => goal.unit.toLocaleLowerCase("pt-BR").includes("livro") || projects.some((project) => project.linkedGoalId === goal.id));
+  return <><section><SectionHeader eyebrow="Projetos reais de leitura" title="Biblioteca" action={<button type="button" onClick={onNew} className="apex-button-primary"><Plus size={12} />Novo livro</button>} />{readingGoals.map((goal) => <Card key={goal.id} className="mb-3 p-3"><div className="flex items-center justify-between"><p className="text-[10px] font-semibold text-ink-secondary">{goal.title}</p><span className="font-stat text-[9px] text-accent">{completedBooksForGoal(projects, goal.id)}/{goal.target} livros</span></div></Card>)}{projects.length === 0 ? <Card className="p-10 text-center"><p className="text-[12px] font-semibold text-ink-secondary">Nenhum livro cadastrado</p><p className="mt-2 text-[9px] text-ink-muted">A Biblioteca começa vazia e usa apenas seus registros.</p></Card> : <div className="grid gap-3 lg:grid-cols-2">{projects.map((project) => <BookCard key={project.id} book={project} sessions={sessions} mode="planning" onEdit={() => onEdit(project)} onDelete={() => onArchive(project)} onStatus={(status) => onStatus(project, status)} />)}</div>}</section>
+    <section><SectionHeader eyebrow="Períodos de leitura" title="Ciclos" action={<button type="button" onClick={onNewCycle} className="apex-button-secondary"><Plus size={12} />Novo ciclo</button>} />{cycles.length === 0 ? <Card className="p-6 text-center text-[9px] text-ink-muted">Nenhum ciclo de leitura criado.</Card> : <div className="grid gap-3 lg:grid-cols-2">{cycles.map((cycle) => <Card key={cycle.id} className="p-4"><div className="flex items-center gap-3"><CalendarRange size={15} className="text-accent" /><div><p className="text-[11px] font-semibold text-ink">{cycle.label}</p><p className="mt-1 text-[8px] text-ink-muted">{cycle.startDate} → {cycle.endDate} · {completedBooksForCycle(projects, cycle)}/{cycle.targetBooks} livros</p></div></div></Card>)}</div>}</section></>;
+}
+
+function DayPlanModal({ date, habits, selectedIds, hasOverride, saving, onSave, onReset, onClose }: { date: string; habits: Habit[]; selectedIds: string[]; hasOverride: boolean; saving: boolean; onSave: (ids: string[]) => void; onReset: () => void; onClose: () => void }) {
+  const [selected, setSelected] = useState(selectedIds);
+  return <Modal title={`Rotina de ${FULL_DOW[new Date(`${date}T12:00:00`).getDay()]}`} subtitle={date} saving={saving} onClose={onClose}><div className="max-h-72 space-y-2 overflow-y-auto">{habits.map((habit) => { const active = selected.includes(habit.id); return <button key={habit.id} type="button" onClick={() => setSelected((value) => active ? value.filter((id) => id !== habit.id) : [...value, habit.id])} className="flex w-full items-center gap-3 rounded-control border p-3 text-left" style={{ borderColor: active ? habit.color : "var(--border-default)", background: active ? `${habit.color}10` : "transparent" }}><span className="flex h-6 w-6 items-center justify-center rounded border" style={{ background: active ? habit.color : "transparent", borderColor: active ? habit.color : "var(--border-default)" }}>{active && <Check size={11} color="#111" />}</span><LucideIcon name={habit.lucideIcon} size={13} color={active ? habit.color : "var(--text-muted)"} /><span className="flex-1 text-[10px] text-ink-secondary">{habit.name}</span><span className="font-stat text-[8px] text-ink-muted">{habit.time}</span></button>; })}</div><div className="mt-4 flex flex-wrap justify-end gap-2">{hasOverride && <button type="button" onClick={onReset} disabled={saving} className="apex-button-secondary">Usar frequência padrão</button>}<button type="button" onClick={() => onSave(selected)} disabled={saving} className="apex-button-primary">Salvar este dia</button></div></Modal>;
+}
+
+function TaskForm({ draft, setDraft, saving, onSave, onClose }: { draft: TaskDraft; setDraft: (draft: TaskDraft) => void; saving: boolean; onSave: () => void; onClose: () => void }) {
+  return <Modal title={draft.id ? "Editar tarefa" : "Nova tarefa"} saving={saving} onClose={onClose}><div className="space-y-3"><Field label="Tarefa"><input value={draft.name} maxLength={240} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="apex-input" /></Field><div className="grid grid-cols-2 gap-3"><Field label="Horário opcional"><input type="time" value={draft.time} onChange={(event) => setDraft({ ...draft, time: event.target.value })} className="apex-input" /></Field><Field label="Frequência"><select value={draft.frequency.type} onChange={(event) => { const type = event.target.value as TaskFrequency["type"]; const frequency: TaskFrequency = type === "once" ? { type: "once" } : type === "daily" ? { type: "daily" } : type === "xPerWeek" ? { type: "xPerWeek", times: 1 } : { type: "specificDays", days: [1] }; setDraft({ ...draft, frequency }); }} className="apex-input"><option value="once">Uma vez</option><option value="daily">Diária</option><option value="xPerWeek">X vezes/semana</option><option value="specificDays">Dias fixos</option></select></Field></div>{draft.frequency.type === "once" && <Field label="Data"><input type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} className="apex-input" /></Field>}{draft.frequency.type === "xPerWeek" && <Field label="Vezes por semana"><input type="number" min={1} max={7} value={draft.frequency.times} onChange={(event) => setDraft({ ...draft, frequency: { type: "xPerWeek", times: Math.min(7, Math.max(1, Number(event.target.value))) } })} className="apex-input" /></Field>}{draft.frequency.type === "specificDays" && <div className="flex flex-wrap gap-2">{DOW.map((day, index) => { const active = draft.frequency.type === "specificDays" && draft.frequency.days.includes(index); return <button key={day} type="button" onClick={() => { if (draft.frequency.type !== "specificDays") return; setDraft({ ...draft, frequency: { type: "specificDays", days: active ? draft.frequency.days.filter((value) => value !== index) : [...draft.frequency.days, index].sort() } }); }} className={`rounded-control border px-3 py-2 text-[9px] ${active ? "border-line-accent bg-accent-subtle text-accent" : "border-line text-ink-muted"}`}>{day}</button>; })}</div>}<Field label="Observações"><textarea value={draft.notes} maxLength={1000} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} rows={3} className="apex-input min-h-20 resize-y" /></Field></div><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={onClose} className="apex-button-secondary">Cancelar</button><button type="button" disabled={saving || !draft.name.trim() || (draft.frequency.type === "once" && !draft.date)} onClick={onSave} className="apex-button-primary">Salvar tarefa</button></div></Modal>;
+}
+
+function GoalForm({ draft, setDraft, habits, templates, saving, onSave, onClose }: { draft: GoalDraft; setDraft: (draft: GoalDraft) => void; habits: Habit[]; templates: TrainingTemplate[]; saving: boolean; onSave: () => void; onClose: () => void }) {
+  return <Modal title={draft.id ? "Editar meta" : "Nova meta"} saving={saving} onClose={onClose}><div className="space-y-3"><Field label="Título"><input value={draft.title} maxLength={180} onChange={(event) => setDraft({ ...draft, title: event.target.value })} className="apex-input" /></Field><div className="grid grid-cols-2 gap-3"><Field label="Atual"><input type="number" step="0.01" value={draft.current} onChange={(event) => setDraft({ ...draft, current: Number(event.target.value) })} className="apex-input" /></Field><Field label="Meta"><input type="number" min={0.01} step="0.01" value={draft.target} onChange={(event) => setDraft({ ...draft, target: Number(event.target.value) })} className="apex-input" /></Field><Field label="Unidade"><input value={draft.unit} maxLength={40} onChange={(event) => setDraft({ ...draft, unit: event.target.value })} className="apex-input" placeholder="kg, km, livros..." /></Field><Field label="Prazo"><input type="date" value={draft.targetDate} onChange={(event) => setDraft({ ...draft, targetDate: event.target.value })} className="apex-input" /></Field></div><Field label="Status"><select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as Goal["status"] })} className="apex-input"><option value="active">Ativa</option><option value="paused">Pausada</option><option value="completed">Concluída</option></select></Field><div><p className="apex-kicker mb-2">Hábitos vinculados</p><div className="flex flex-wrap gap-2">{habits.map((habit) => { const active = draft.linkedHabitIds.includes(habit.id); return <button key={habit.id} type="button" onClick={() => setDraft({ ...draft, linkedHabitIds: active ? draft.linkedHabitIds.filter((id) => id !== habit.id) : [...draft.linkedHabitIds, habit.id] })} className="rounded-full border px-2.5 py-1.5 text-[8px]" style={{ color: active ? habit.color : "var(--text-muted)", borderColor: active ? habit.color : "var(--border-default)" }}>{habit.name}</button>; })}</div></div><div><p className="apex-kicker mb-2">Fichas de treino vinculadas</p><div className="flex flex-wrap gap-2">{templates.map((template) => { const active = draft.linkedWorkoutTemplateIds.includes(template.id); return <button key={template.id} type="button" onClick={() => setDraft({ ...draft, linkedWorkoutTemplateIds: active ? draft.linkedWorkoutTemplateIds.filter((id) => id !== template.id) : [...draft.linkedWorkoutTemplateIds, template.id] })} className={`rounded-full border px-2.5 py-1.5 text-[8px] ${active ? "border-line-accent text-accent" : "border-line text-ink-muted"}`}>{template.name}</button>; })}</div></div></div><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={onClose} className="apex-button-secondary">Cancelar</button><button type="button" disabled={saving || !draft.title.trim() || !draft.targetDate || draft.target <= 0} onClick={onSave} className="apex-button-primary">Salvar meta</button></div></Modal>;
+}
+
+function CycleForm({ saving, onSave, onClose }: { saving: boolean; onSave: (cycle: Omit<ReadingCycle, "id">) => void; onClose: () => void }) {
+  const [label, setLabel] = useState(""); const [startDate, setStartDate] = useState(isoDate(new Date())); const [endDate, setEndDate] = useState(isoDate(new Date())); const [targetBooks, setTargetBooks] = useState(1);
+  return <Modal title="Novo ciclo de leitura" saving={saving} onClose={onClose}><div className="space-y-3"><Field label="Nome"><input value={label} onChange={(event) => setLabel(event.target.value)} className="apex-input" placeholder="Ex.: 3º trimestre" /></Field><div className="grid grid-cols-2 gap-3"><Field label="Início"><input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="apex-input" /></Field><Field label="Fim"><input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="apex-input" /></Field></div><Field label="Livros-meta"><input type="number" min={1} max={1000} value={targetBooks} onChange={(event) => setTargetBooks(Number(event.target.value))} className="apex-input" /></Field></div><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={onClose} className="apex-button-secondary">Cancelar</button><button type="button" disabled={saving || !label.trim() || endDate < startDate || targetBooks < 1} onClick={() => onSave({ label: label.trim(), startDate, endDate, targetBooks })} className="apex-button-primary">Salvar ciclo</button></div></Modal>;
+}
+
+function Modal({ title, subtitle, saving, onClose, children }: { title: string; subtitle?: string; saving: boolean; onClose: () => void; children: React.ReactNode }) { return <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/75 backdrop-blur-sm sm:items-center sm:p-5"><Card emphasis className="max-h-[95vh] w-full overflow-y-auto rounded-b-none p-4 sm:max-w-xl sm:rounded-panel"><div className="mb-4 flex items-start justify-between"><div><p className="apex-kicker">Planejamento persistente</p><h3 className="mt-2 text-[15px] font-semibold text-ink">{title}</h3>{subtitle && <p className="mt-1 font-stat text-[8px] text-ink-muted">{subtitle}</p>}</div><button type="button" onClick={onClose} disabled={saving} className="flex h-9 w-9 items-center justify-center rounded-control border border-line text-ink-muted"><X size={14} /></button></div>{children}</Card></div>; }
+function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-1.5 block text-[8px] font-semibold uppercase tracking-wide text-ink-faint">{label}</span>{children}</label>; }
+function emptyTask(): TaskDraft { return { id: null, name: "", time: "", frequency: { type: "once" }, date: isoDate(new Date()), notes: "" }; }
+function taskToDraft(task: Task): TaskDraft { return { id: task.id, name: task.name, time: task.time ?? "", frequency: task.frequency, date: task.date ?? isoDate(new Date()), notes: task.notes }; }
+function emptyGoal(): GoalDraft { return { id: null, title: "", targetDate: isoDate(new Date()), current: 0, target: 1, unit: "", status: "active", linkedHabitIds: [], linkedWorkoutTemplateIds: [] }; }
+function taskFrequencyLabel(frequency: TaskFrequency) { if (frequency.type === "once") return "Uma vez"; if (frequency.type === "daily") return "Diária"; if (frequency.type === "xPerWeek") return `${frequency.times}x/semana`; return frequency.days.map((day) => DOW[day]).join(" · "); }

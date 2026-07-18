@@ -1,6 +1,7 @@
 "use client";
 import { motion } from "framer-motion";
 import { BookOpen, Play, Pause, Check, X, Pencil, Trash2, RotateCcw } from "lucide-react";
+import type { LucideIcon as LucideIconType } from "lucide-react";
 import {
   pagesReadInWeek, weeklyStatus, dailyRecommendation, bookProgressPct,
   STATUS_META, WEEKLY_STATUS_META,
@@ -111,7 +112,7 @@ export default function BookCard({ book, sessions, mode = "library", onLog, onEd
   );
 }
 
-function IconBtn({ icon: Icon, title, onClick, color }: { icon: any; title: string; onClick: () => void; color?: string }) {
+function IconBtn({ icon: Icon, title, onClick, color }: { icon: LucideIconType; title: string; onClick: () => void; color?: string }) {
   return (
     <button onClick={onClick} title={title} className="p-1.5 rounded-lg text-apex-faint hover:bg-apex-surface transition-colors" style={color ? { color } : undefined}>
       <Icon size={13} />
