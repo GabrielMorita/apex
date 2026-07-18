@@ -1,138 +1,91 @@
 "use client";
-import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Trash2, Pencil, Check, X } from "lucide-react";
-import PageHeader from "@/components/ui/PageHeader";
+
+import { useCallback, useEffect, useState } from "react";
+import { AlertCircle, Check, LoaderCircle, Pencil, Plus, Trash2, X } from "lucide-react";
+import { useAuth } from "@/components/auth/AuthProvider";
 import LucideIcon from "@/components/ui/LucideIcon";
-import { useLocalStorage } from "@/lib/useLocalStorage";
-import { defaultHabits, freqLabel, type Habit, type HabitStatus, type HabitFrequency } from "@/data/mockData";
+import { Card, SectionHeader } from "@/components/ui/primitives";
+import { friendlyProductivityError } from "@/lib/productivity/errors";
+import { archiveHabit, loadHabits, saveHabit } from "@/lib/productivity/service";
+import type { Habit, HabitCategory, HabitDraft, HabitFrequency } from "@/lib/productivity/types";
 
-const CATS: {value:Habit["category"];label:string}[] = [
-  {value:"espiritual",label:"Espiritual"},{value:"treino",label:"Treino"},
-  {value:"foco",label:"Foco"},{value:"saude",label:"Saúde"},{value:"aprendizado",label:"Aprendizado"},
-];
 const COLORS = ["#FBBF24", "#F59E0B", "#F97316", "#EF4444", "#F43F5E", "#EC4899", "#D946EF", "#A855F7", "#8B5CF6", "#6366F1", "#3B82F6", "#0EA5E9", "#06B6D4", "#14B8A6", "#10B981", "#22C55E", "#84CC16", "#A3E635", "#D4A373", "#94A3B8"];
-const ICONS = ["BookOpen","Dumbbell","Activity","Brain","BookMarked","Heart","Flame","Star","Moon","Sun","Coffee","Music","Zap","Target","Trophy"];
-const DOW = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+const ICONS = ["BookOpen", "Dumbbell", "Activity", "Brain", "BookMarked", "Heart", "Flame", "Star", "Moon", "Sun", "Coffee", "Music", "Zap", "Target", "Trophy"];
+const DOW = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+const CATEGORY_LABELS: Record<HabitCategory, string> = { espiritual: "Espiritual", treino: "Treino", foco: "Foco", saude: "Saúde", aprendizado: "Aprendizado", pessoal: "Pessoal" };
 
-function HabitForm({ initial, onSave, onCancel }: { initial?: Partial<Habit>; onSave:(d:Partial<Habit>)=>void; onCancel:()=>void }) {
-  const [name,setName] = useState(initial?.name??"");
-  const [time,setTime] = useState(initial?.time??"07:00");
-  const [cat,setCat]   = useState<Habit["category"]>(initial?.category??"foco");
-  const [color,setColor] = useState(initial?.color??"#c9a84c");
-  const [icon,setIcon]   = useState(initial?.lucideIcon??"Star");
-  const [ft,setFt]       = useState<HabitFrequency["type"]>(initial?.frequency?.type??"daily");
-  const [xt,setXt]       = useState(initial?.frequency?.type==="xPerWeek"?initial.frequency.times:3);
-  const [sd,setSd]       = useState<number[]>(initial?.frequency?.type==="specificDays"?initial.frequency.days:[1,2,3,4,5]);
-  const [dur,setDur]     = useState(initial?.duration??"30 min");
+const EMPTY: HabitDraft = { id: null, name: "", time: "07:00", period: "morning", category: "foco", color: "#FBBF24", lucideIcon: "Star", frequency: { type: "daily" }, weeklyGoal: 7, durationMinutes: 30, opensReadingLog: false };
 
-  function buildFreq(): HabitFrequency {
-    if(ft==="daily") return {type:"daily"};
-    if(ft==="xPerWeek") return {type:"xPerWeek",times:xt};
-    return {type:"specificDays",days:sd};
-  }
-  function handleSave() {
-    if(!name.trim()) return;
-    onSave({name:name.trim(),time,category:cat,color,lucideIcon:icon,frequency:buildFreq(),duration:dur,weeklyGoal:ft==="daily"?7:ft==="xPerWeek"?xt:sd.length});
-  }
+function draftFromHabit(habit: Habit): HabitDraft { return { id: habit.id, name: habit.name, time: habit.time, period: habit.period, category: habit.category, color: habit.color, lucideIcon: habit.lucideIcon, frequency: habit.frequency, weeklyGoal: habit.weeklyGoal, durationMinutes: habit.durationMinutes, opensReadingLog: habit.opensReadingLog }; }
 
-  return (
-    <motion.div initial={{opacity:0,y:-6}} animate={{opacity:1,y:0}} className="bg-apex-card border border-gold/30 rounded-xl p-4 space-y-3 mb-4">
-      <input autoFocus type="text" placeholder="Nome do hábito..." value={name} onChange={(e)=>setName(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&handleSave()}
-        className="w-full bg-apex-surface border border-apex-border rounded-lg px-3 py-2 text-[12px] text-apex-white placeholder-apex-faint outline-none focus:border-gold transition-colors"/>
-      <div className="flex gap-2">
-        <input type="time" value={time} onChange={(e)=>setTime(e.target.value)} className="bg-apex-surface border border-apex-border rounded-lg px-3 py-2 text-[12px] text-apex-white font-mono outline-none focus:border-gold"/>
-        <input type="text" placeholder="Duração (ex: 30 min)" value={dur} onChange={(e)=>setDur(e.target.value)} className="flex-1 bg-apex-surface border border-apex-border rounded-lg px-3 py-2 text-[12px] text-apex-white placeholder-apex-faint outline-none focus:border-gold"/>
-        <select value={cat} onChange={(e)=>setCat(e.target.value as Habit["category"])} className="bg-apex-surface border border-apex-border rounded-lg px-2 py-2 text-[11px] text-apex-white outline-none focus:border-gold">
-          {CATS.map((c)=><option key={c.value} value={c.value}>{c.label}</option>)}
-        </select>
-      </div>
-      <div>
-        <p className="text-[9px] text-apex-faint uppercase tracking-wider mb-2">Cor</p>
-        <div className="grid grid-cols-10 gap-2">{COLORS.map((c)=><button key={c} type="button" onClick={()=>setColor(c)} aria-label={`Selecionar cor ${c}`} className="h-7 w-7 rounded-full transition-transform hover:scale-105" style={{background:c,border:color===c?"2px solid #fff":"2px solid transparent",outline:color===c?`2px solid ${c}`:"none"}}/> )}</div>
-      </div>
-      <div>
-        <p className="text-[9px] text-apex-faint uppercase tracking-wider mb-2">Ícone</p>
-        <div className="flex gap-1.5 flex-wrap">{ICONS.map((ic)=><button key={ic} onClick={()=>setIcon(ic)} className="w-8 h-8 rounded-lg border flex items-center justify-center transition-colors" style={{background:icon===ic?`${color}22`:"transparent",borderColor:icon===ic?color:"#1e1e1e"}}><LucideIcon name={ic} size={14} color={icon===ic?color:"#555"}/></button>)}</div>
-      </div>
-      <div>
-        <p className="text-[9px] text-apex-faint uppercase tracking-wider mb-2">Frequência</p>
-        <div className="flex gap-2 mb-2">{(["daily","xPerWeek","specificDays"] as const).map((t)=><button key={t} onClick={()=>setFt(t)} className={`px-3 py-1.5 rounded-lg text-[10px] border transition-colors ${ft===t?"bg-apex-gold-bg border-gold text-gold":"bg-apex-surface border-apex-border text-apex-muted"}`}>{t==="daily"?"Diário":t==="xPerWeek"?"X vezes/sem":"Dias fixos"}</button>)}</div>
-        {ft==="xPerWeek"&&<div className="flex items-center gap-3"><span className="text-[11px] text-apex-muted">Vezes por semana:</span><input type="number" min={1} max={7} value={xt} onChange={(e)=>setXt(Math.min(7,Math.max(1,+e.target.value)))} className="w-14 bg-apex-surface border border-apex-border rounded-lg px-2 py-1 text-[12px] text-apex-white font-mono outline-none focus:border-gold text-center"/></div>}
-        {ft==="specificDays"&&<div className="flex gap-1.5 flex-wrap">{DOW.map((d,i)=><button key={i} onClick={()=>setSd(p=>p.includes(i)?p.filter(x=>x!==i):[...p,i].sort())} className={`px-2.5 py-1 rounded-lg text-[10px] border transition-colors ${sd.includes(i)?"bg-apex-gold-bg border-gold text-gold":"bg-apex-surface border-apex-border text-apex-muted"}`}>{d}</button>)}</div>}
-      </div>
-      <div className="flex gap-2">
-        <button onClick={handleSave} className="flex-1 flex items-center justify-center gap-1.5 bg-gold text-apex-bg text-[11px] font-medium rounded-lg py-2 hover:bg-amber-500 transition-colors"><Check size={12}/> Salvar</button>
-        <button onClick={onCancel} className="px-4 text-apex-faint text-[11px] border border-apex-border rounded-lg hover:border-apex-border2 transition-colors">Cancelar</button>
-      </div>
-    </motion.div>
-  );
+function frequencyLabel(frequency: HabitFrequency) {
+  if (frequency.type === "daily") return "Diário";
+  if (frequency.type === "xPerWeek") return `${frequency.times}x por semana`;
+  return frequency.days.map((day) => DOW[day]).join(" · ");
 }
 
-export default function RotinaPage() {
-  const [habits,setHabits]   = useLocalStorage<Habit[]>("apex-habits-today",defaultHabits);
-  const [statuses,setStatuses] = useLocalStorage<Record<string,HabitStatus>>("apex-today-statuses",{});
-  const [showForm,setShowForm] = useState(false);
-  const [editId,setEditId]     = useState<string|null>(null);
-  const [mounted,setMounted]   = useState(false);
-  useEffect(()=>setMounted(true),[]);
+export default function HabitsManager() {
+  const { user, loading: authLoading } = useAuth();
+  const [habits, setHabits] = useState<Habit[]>([]);
+  const [draft, setDraft] = useState<HabitDraft | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-  function toggle(id:string){ setStatuses(p=>{const c=p[id]??"pending";return{...p,[id]:c==="pending"?"done":c==="done"?"skipped":"pending"}}); }
-  function handleAdd(d:Partial<Habit>){ setHabits(p=>[...p,{id:`h${Date.now()}`,name:d.name!,time:d.time!,category:d.category!,color:d.color!,lucideIcon:d.lucideIcon!,frequency:d.frequency!,status:"pending",streak:0,weeklyGoal:d.weeklyGoal??7,duration:d.duration}]); setShowForm(false); }
-  function handleEdit(d:Partial<Habit>){ setHabits(p=>p.map(h=>h.id===editId?{...h,...d}:h)); setEditId(null); }
-  function handleDel(id:string){ setHabits(p=>p.filter(h=>h.id!==id)); }
+  const refresh = useCallback(async () => { if (!user) return; setHabits(await loadHabits(user.id)); }, [user]);
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) { setLoading(false); setError("Sua sessão não está disponível. Entre novamente."); return; }
+    let active = true; setLoading(true); setError("");
+    void refresh().catch((loadError) => { if (active) setError(friendlyProductivityError(loadError)); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [authLoading, refresh, user]);
 
-  if(!mounted) return null;
-  const done = habits.filter(h=>(statuses[h.id]??"pending")==="done").length;
+  async function submit() {
+    if (!user || !draft || saving) return;
+    if (!draft.name.trim() || draft.name.trim().length > 120) return setError("Informe um nome de até 120 caracteres.");
+    if (draft.frequency.type === "specificDays" && draft.frequency.days.length === 0) return setError("Escolha pelo menos um dia da semana.");
+    if (draft.durationMinutes !== null && (draft.durationMinutes < 1 || draft.durationMinutes > 1440)) return setError("Use uma duração entre 1 e 1440 minutos.");
+    setSaving(true); setError("");
+    try { await saveHabit(user.id, { ...draft, name: draft.name.trim() }); await refresh(); window.dispatchEvent(new CustomEvent("apex-productivity-changed")); setDraft(null); }
+    catch (saveError) { setError(friendlyProductivityError(saveError)); }
+    finally { setSaving(false); }
+  }
 
-  return (
-    <motion.div initial={{opacity:0}} animate={{opacity:1}} className="flex-1 overflow-y-auto">
-      <PageHeader title="Rotina" subtitle="Seus hábitos diários"/>
-      <div className="apex-page max-w-3xl">
-        <div className="flex gap-3 mb-6">
-          {[{v:done,l:"Concluídos",g:true},{v:habits.length-done,l:"Pendentes",g:false},{v:habits.length,l:"Total",g:false}].map(m=>(
-            <div key={m.l} className="bg-apex-card border border-apex-border rounded-xl px-5 py-3 text-center flex-1">
-              <p className={`text-[20px] font-medium ${m.g?"text-gold":"text-apex-white"}`}>{m.v}</p>
-              <p className="text-[8px] text-apex-faint uppercase tracking-wider mt-0.5">{m.l}</p>
-            </div>
-          ))}
-        </div>
-        <div className="flex gap-2 mb-5">
-          {!showForm&&!editId&&<button onClick={()=>setShowForm(true)} className="flex items-center gap-1.5 px-3 py-2 bg-gold text-apex-bg rounded-lg text-[11px] font-medium hover:bg-amber-500 transition-colors"><Plus size={12}/> Novo hábito</button>}
-          <button onClick={()=>setStatuses({})} className="flex items-center gap-1.5 px-3 py-2 bg-apex-card border border-apex-border text-apex-muted rounded-lg text-[11px] hover:border-apex-border2 transition-colors"><X size={12}/> Resetar dia</button>
-        </div>
-        <AnimatePresence>{showForm&&<HabitForm onSave={handleAdd} onCancel={()=>setShowForm(false)}/>}</AnimatePresence>
-        <p className="text-[9px] text-apex-faint tracking-[2px] uppercase mb-3">Hábitos — {habits.length} total</p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <AnimatePresence>
-            {habits.map(h=>editId===h.id?(
-              <div key={h.id} className="md:col-span-2"><HabitForm initial={h} onSave={handleEdit} onCancel={()=>setEditId(null)}/></div>
-            ):(
-              <div key={h.id} className="relative group">
-                <div className={`flex items-center justify-between px-4 py-3.5 rounded-xl border transition-colors ${(statuses[h.id]??"pending")==="done"?"bg-apex-gold-bg border-[#2a1f0a]":"bg-apex-card border-apex-border hover:border-apex-border2"}`}>
-                  <div className="flex items-center gap-3">
-                    <LucideIcon name={h.lucideIcon??"Circle"} size={14} color={(statuses[h.id]??"pending")==="done"?h.color:"#555"}/>
-                    <div>
-                      <p className="text-[12px] font-medium text-apex-white">{h.name}</p>
-                      <p className="text-[9px] text-apex-faint font-mono">{h.time} · {freqLabel(h.frequency)}</p>
-                    </div>
-                  </div>
-                  <button onClick={()=>toggle(h.id)} className="w-7 h-7 rounded-lg flex items-center justify-center border transition-all"
-                    style={{background:(statuses[h.id]??"pending")==="done"?h.color:"transparent",borderColor:(statuses[h.id]??"pending")==="done"?h.color:"#222"}}>
-                    {(statuses[h.id]??"pending")==="done"&&<Check size={12} color="#080808" strokeWidth={3}/>}
-                    {(statuses[h.id]??"pending")==="skipped"&&<X size={12} color="#ef4444"/>}
-                  </button>
-                </div>
-                <div className="absolute top-2 right-10 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={()=>setEditId(h.id)} className="p-1 text-apex-faint hover:text-gold transition-colors"><Pencil size={11}/></button>
-                  <button onClick={()=>handleDel(h.id)} className="p-1 text-apex-faint hover:text-red-400 transition-colors"><Trash2 size={11}/></button>
-                </div>
-              </div>
-            ))}
-          </AnimatePresence>
-        </div>
-        {habits.length===0&&<div className="text-center py-12 text-apex-faint text-[12px]">Nenhum hábito. Clique em "Novo hábito" para começar.</div>}
-      </div>
-    </motion.div>
-  );
+  async function remove(habit: Habit) {
+    if (!user || saving || !window.confirm(`Arquivar o hábito “${habit.name}”? O histórico será preservado.`)) return;
+    setSaving(true); setError("");
+    try { await archiveHabit(user.id, habit.id); await refresh(); window.dispatchEvent(new CustomEvent("apex-productivity-changed")); }
+    catch (removeError) { setError(friendlyProductivityError(removeError)); }
+    finally { setSaving(false); }
+  }
+
+  if (loading) return <Card className="flex items-center gap-2 p-5 text-[10px] text-ink-muted"><LoaderCircle size={14} className="animate-spin text-accent" />Carregando hábitos...</Card>;
+
+  return <section>
+    <SectionHeader eyebrow="Planejamento pessoal" title="Hábitos" action={<button type="button" onClick={() => { setDraft({ ...EMPTY }); setError(""); }} className="apex-button-primary"><Plus size={13} />Novo hábito</button>} />
+    <Card className="mb-4 p-4"><p className="text-[10px] leading-relaxed text-ink-muted">Crie sua rotina aqui. A execução aparece em Hoje e os resultados são derivados em Progresso.</p></Card>
+    {error && !draft && <p className="mb-3 flex items-center gap-2 rounded-control border border-red-400/20 bg-red-400/5 p-3 text-[9px] text-red-300"><AlertCircle size={13} />{error}</p>}
+    {habits.length === 0 ? <Card className="p-10 text-center"><p className="text-[12px] font-semibold text-ink-secondary">Nenhum hábito criado</p><p className="mt-2 text-[9px] text-ink-muted">Sua conta começa vazia. Crie somente os hábitos que fazem sentido para você.</p></Card> : <div className="grid gap-3 lg:grid-cols-2">{habits.map((habit) => <Card key={habit.id} className="p-4"><div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control border" style={{ background: `${habit.color}18`, borderColor: `${habit.color}40` }}><LucideIcon name={habit.lucideIcon} size={17} color={habit.color} /></span><div className="min-w-0 flex-1"><p className="text-[12px] font-semibold text-ink">{habit.name}</p><p className="mt-1 text-[8px] text-ink-muted">{habit.time} · {frequencyLabel(habit.frequency)}{habit.durationMinutes ? ` · ${habit.durationMinutes} min` : ""}</p><p className="mt-2 text-[8px] text-ink-faint">{CATEGORY_LABELS[habit.category]} · meta {habit.weeklyGoal}x/semana</p></div><div className="flex gap-1"><button type="button" aria-label={`Editar ${habit.name}`} onClick={() => { setDraft(draftFromHabit(habit)); setError(""); }} className="flex h-8 w-8 items-center justify-center rounded-control border border-line text-ink-muted"><Pencil size={12} /></button><button type="button" aria-label={`Arquivar ${habit.name}`} onClick={() => void remove(habit)} className="flex h-8 w-8 items-center justify-center rounded-control border border-line text-ink-muted hover:text-red-300"><Trash2 size={12} /></button></div></div></Card>)}</div>}
+    {draft && <HabitForm draft={draft} setDraft={setDraft} saving={saving} error={error} onSave={() => void submit()} onClose={() => { if (!saving) { setDraft(null); setError(""); } }} />}
+  </section>;
 }
+
+function HabitForm({ draft, setDraft, saving, error, onSave, onClose }: { draft: HabitDraft; setDraft: (draft: HabitDraft) => void; saving: boolean; error: string; onSave: () => void; onClose: () => void }) {
+  const frequencyType = draft.frequency.type;
+  function setFrequency(type: HabitFrequency["type"]) {
+    const frequency: HabitFrequency = type === "daily" ? { type: "daily" } : type === "xPerWeek" ? { type: "xPerWeek", times: 3 } : { type: "specificDays", days: [1, 2, 3, 4, 5] };
+    setDraft({ ...draft, frequency, weeklyGoal: type === "daily" ? 7 : type === "xPerWeek" ? 3 : 5 });
+  }
+  return <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/75 backdrop-blur-sm sm:items-center sm:p-5" role="dialog" aria-modal="true"><div className="max-h-[95vh] w-full overflow-hidden rounded-t-panel border border-line bg-surface-overlay shadow-float sm:max-w-3xl sm:rounded-panel"><div className="flex items-center justify-between border-b border-line p-4"><div><p className="apex-kicker">Configuração do hábito</p><h3 className="mt-2 text-[16px] font-semibold text-ink">{draft.id ? "Editar hábito" : "Novo hábito"}</h3></div><button type="button" onClick={onClose} disabled={saving} className="flex h-9 w-9 items-center justify-center rounded-control border border-line text-ink-muted"><X size={14} /></button></div><div className="max-h-[calc(95vh-132px)] space-y-4 overflow-y-auto p-4 sm:p-5">
+    <Field label="Nome"><input value={draft.name} maxLength={120} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="apex-input" placeholder="Ex.: Meditar" /></Field>
+    <div className="grid gap-3 sm:grid-cols-4"><Field label="Horário"><input type="time" value={draft.time} onChange={(event) => setDraft({ ...draft, time: event.target.value })} className="apex-input" /></Field><Field label="Período"><select value={draft.period} onChange={(event) => setDraft({ ...draft, period: event.target.value as Habit["period"] })} className="apex-input"><option value="morning">Manhã</option><option value="afternoon">Tarde</option><option value="evening">Noite</option><option value="anytime">Qualquer horário</option></select></Field><Field label="Categoria"><select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value as HabitCategory })} className="apex-input">{Object.entries(CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field><Field label="Duração (min)"><input type="number" min={1} max={1440} value={draft.durationMinutes ?? ""} onChange={(event) => setDraft({ ...draft, durationMinutes: event.target.value === "" ? null : Number(event.target.value) })} className="apex-input" /></Field></div>
+    <div><p className="apex-kicker mb-2">Cor</p><div className="grid grid-cols-10 gap-2">{COLORS.map((color) => <button key={color} type="button" onClick={() => setDraft({ ...draft, color })} aria-label={`Cor ${color}`} className="h-7 w-7 rounded-full" style={{ background: color, border: draft.color === color ? "2px solid white" : "2px solid transparent", outline: draft.color === color ? `2px solid ${color}` : "none" }} />)}</div></div>
+    <div><p className="apex-kicker mb-2">Ícone</p><div className="flex flex-wrap gap-2">{ICONS.map((icon) => <button key={icon} type="button" onClick={() => setDraft({ ...draft, lucideIcon: icon })} className="flex h-9 w-9 items-center justify-center rounded-control border" style={{ borderColor: draft.lucideIcon === icon ? draft.color : "var(--border-default)", background: draft.lucideIcon === icon ? `${draft.color}18` : "transparent" }}><LucideIcon name={icon} size={14} color={draft.lucideIcon === icon ? draft.color : "var(--text-muted)"} /></button>)}</div></div>
+    <div><p className="apex-kicker mb-2">Frequência</p><div className="mb-3 flex flex-wrap gap-2">{(["daily", "xPerWeek", "specificDays"] as HabitFrequency["type"][]).map((type) => <button key={type} type="button" onClick={() => setFrequency(type)} className={`rounded-control border px-3 py-2 text-[9px] font-semibold ${frequencyType === type ? "border-line-accent bg-accent-subtle text-accent" : "border-line text-ink-muted"}`}>{type === "daily" ? "Diário" : type === "xPerWeek" ? "X vezes por semana" : "Dias fixos"}</button>)}</div>{draft.frequency.type === "xPerWeek" && <Field label="Vezes por semana"><input type="number" min={1} max={7} value={draft.frequency.times} onChange={(event) => { const times = Math.min(7, Math.max(1, Number(event.target.value))); setDraft({ ...draft, frequency: { type: "xPerWeek", times }, weeklyGoal: times }); }} className="apex-input max-w-32" /></Field>}{draft.frequency.type === "specificDays" && <div className="flex flex-wrap gap-2">{DOW.map((day, index) => { const active = draft.frequency.type === "specificDays" && draft.frequency.days.includes(index); return <button key={day} type="button" onClick={() => { if (draft.frequency.type !== "specificDays") return; const days = active ? draft.frequency.days.filter((value) => value !== index) : [...draft.frequency.days, index].sort(); setDraft({ ...draft, frequency: { type: "specificDays", days }, weeklyGoal: Math.max(1, days.length) }); }} className={`rounded-control border px-3 py-2 text-[9px] ${active ? "border-line-accent bg-accent-subtle text-accent" : "border-line text-ink-muted"}`}>{day}</button>; })}</div>}</div>
+    <label className="flex items-start gap-3 rounded-control border border-line p-3"><input type="checkbox" checked={draft.opensReadingLog} onChange={(event) => setDraft({ ...draft, opensReadingLog: event.target.checked })} className="mt-0.5" /><span><span className="block text-[10px] font-semibold text-ink-secondary">Abrir registro de leitura ao concluir</span><span className="mt-1 block text-[8px] text-ink-muted">Use em um hábito ligado à Biblioteca de leitura.</span></span></label>
+    {error && <p className="rounded-control border border-red-400/20 bg-red-400/5 p-3 text-[9px] text-red-300">{error}</p>}
+  </div><div className="flex justify-end gap-2 border-t border-line p-4"><button type="button" onClick={onClose} disabled={saving} className="apex-button-secondary">Cancelar</button><button type="button" onClick={onSave} disabled={saving} className="apex-button-primary">{saving ? <LoaderCircle size={13} className="animate-spin" /> : <Check size={13} />}{saving ? "Salvando..." : "Salvar hábito"}</button></div></div></div>;
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-1.5 block text-[8px] font-semibold uppercase tracking-wide text-ink-faint">{label}</span>{children}</label>; }

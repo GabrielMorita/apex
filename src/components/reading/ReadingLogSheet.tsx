@@ -1,9 +1,9 @@
 "use client";
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { X, BookOpen, Check, ChevronLeft } from "lucide-react";
 import {
-  dailyRecommendation, pagesReadInWeek, bookProgressPct,
+  dailyRecommendation,
   type ReadingProject, type ReadingSession,
 } from "@/data/readingData";
 

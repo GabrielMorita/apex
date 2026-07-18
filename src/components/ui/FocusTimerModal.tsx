@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Check, Pause, Play, RotateCcw, X } from "lucide-react";
-import { useLocalStorage } from "@/lib/useLocalStorage";
-
-type Session = { id: string; date: string; minutes: number; task: string };
+import { useAuth } from "@/components/auth/AuthProvider";
+import { friendlyProductivityError } from "@/lib/productivity/errors";
+import { loadFocusSessions, recordFocusSession } from "@/lib/productivity/service";
+import { isoDate } from "@/lib/productivity/date";
 
 type TimerMode = "25" | "45";
 const MODES: Record<TimerMode, number> = { "25": 25, "45": 45 };
@@ -18,25 +19,38 @@ function durationToMode(duration?: string): TimerMode {
 
 export default function FocusTimerModal({
   task,
+  habitId,
   duration,
   onComplete,
   onClose,
 }: {
   task: string;
+  habitId?: string;
   duration?: string;
   onComplete: () => void;
   onClose: () => void;
 }) {
+  const { user } = useAuth();
   const initialMode = durationToMode(duration);
   const [mode, setMode] = useState<TimerMode>(initialMode);
   const [seconds, setSeconds] = useState(MODES[initialMode] * 60);
   const [running, setRunning] = useState(false);
-  const [sessions, setSessions] = useLocalStorage<Session[]>("apex-deepwork-sessions", []);
+  const [todaySessionCount, setTodaySessionCount] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const total = MODES[mode] * 60;
   const percentage = Math.min(100, ((total - seconds) / total) * 100);
   const radius = 76;
   const circumference = 2 * Math.PI * radius;
+
+  useEffect(() => {
+    if (!user) return;
+    const today = isoDate(new Date());
+    void loadFocusSessions(user.id, today, today)
+      .then((sessions) => setTodaySessionCount(sessions.length))
+      .catch(() => undefined);
+  }, [user]);
 
   useEffect(() => {
     if (!running) return;
@@ -51,13 +65,10 @@ export default function FocusTimerModal({
   useEffect(() => {
     if (!running || seconds !== 0) return;
     setRunning(false);
-    setSessions((previous) => [
-      ...previous,
-      { id: `focus-${Date.now()}`, date: new Date().toISOString().split("T")[0], minutes: MODES[mode], task },
-    ]);
-    onComplete();
-    onClose();
-  }, [seconds, running, mode, task, onComplete, onClose, setSessions]);
+    void finish(MODES[mode]);
+    // finish is intentionally triggered only when the countdown reaches zero.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seconds, running]);
 
   function changeMode(nextMode: TimerMode) {
     setMode(nextMode);
@@ -70,14 +81,25 @@ export default function FocusTimerModal({
     setSeconds(MODES[mode] * 60);
   }
 
-  function finish(minutesOverride?: number) {
+  async function finish(minutesOverride?: number) {
+    if (!user || saving) {
+      if (!user) setError("Sua sessão não está disponível. Entre novamente.");
+      return;
+    }
     const elapsed = minutesOverride ?? Math.max(1, Math.round((total - seconds) / 60));
-    setSessions((previous) => [
-      ...previous,
-      { id: `focus-${Date.now()}`, date: new Date().toISOString().split("T")[0], minutes: elapsed, task },
-    ]);
-    onComplete();
-    onClose();
+    setSaving(true);
+    setError("");
+    try {
+      await recordFocusSession(user.id, { habitId: habitId ?? null, date: isoDate(new Date()), minutes: elapsed, task });
+      setTodaySessionCount((count) => count + 1);
+      window.dispatchEvent(new CustomEvent("apex-productivity-changed"));
+      onComplete();
+      onClose();
+    } catch (saveError) {
+      setError(friendlyProductivityError(saveError));
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -117,8 +139,9 @@ export default function FocusTimerModal({
           </button>
           <button onClick={reset} aria-label="Reiniciar" className="apex-button-secondary px-4"><RotateCcw size={15} /></button>
         </div>
-        <button onClick={() => finish()} className="apex-button-secondary mt-2 w-full"><Check size={15} /> Concluir sessão agora</button>
-        <p className="mt-4 text-center text-[9px] text-ink-faint">{sessions.filter((session) => session.date === new Date().toISOString().split("T")[0]).length} sessão(ões) registradas hoje</p>
+        <button disabled={saving} onClick={() => void finish()} className="apex-button-secondary mt-2 w-full disabled:opacity-50"><Check size={15} /> {saving ? "Salvando sessão..." : "Concluir sessão agora"}</button>
+        {error && <p role="alert" className="mt-3 text-center text-[9px] text-red-300">{error}</p>}
+        <p className="mt-4 text-center text-[9px] text-ink-faint">{todaySessionCount} sessão(ões) registradas hoje</p>
       </motion.section>
     </div>
   );

@@ -1,62 +1,39 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  ArrowRight,
   Bell,
   BookOpen,
   Check,
   ChevronRight,
   Clock3,
-  Dumbbell,
   Flame,
   Inbox,
-  Moon,
   Plus,
   RefreshCw,
   Target,
   Utensils,
 } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
+import { useAuth } from "@/components/auth/AuthProvider";
 import CheckinModal from "@/components/ui/CheckinModal";
 import FocusTimerModal from "@/components/ui/FocusTimerModal";
 import LucideIcon from "@/components/ui/LucideIcon";
 import ReadingLogSheet from "@/components/reading/ReadingLogSheet";
+import TodayTrainingCard from "@/components/training/TodayTrainingCard";
 import type { InboxItem } from "@/components/layout/QuickCapture";
 import { Card } from "@/components/ui/primitives";
-import { useLocalStorage } from "@/lib/useLocalStorage";
 import { navigateTo } from "@/lib/navigationEvents";
-import {
-  DOW_NAMES,
-  FULL_DAY_NAMES,
-  defaultHabits,
-  defaultPlannedWorkouts,
-  defaultPresets,
-  defaultTemplates,
-  getCurrentWeekDates,
-  getMedalColor,
-  type DayException,
-  type DayPreset,
-  type Habit,
-  type HabitStatus,
-  type PlannedWorkout,
-  type WorkoutTemplate,
-} from "@/data/mockData";
-import {
-  defaultDietPresets,
-  defaultTasks,
-  type CheckinEntry,
-  type DietDayPreset,
-  type Meal,
-  type Task,
-} from "@/data/extraData";
-import {
-  defaultReadingProjects,
-  defaultReadingSessions,
-  type ReadingProject,
-  type ReadingSession,
-} from "@/data/readingData";
+import { loadDietConsumptionRange, loadDietState } from "@/lib/diet/service";
+import { summarizeConsumptionForDate, targetPercentage } from "@/lib/diet/analytics";
+import type { DietConsumptionEntry, DietState } from "@/lib/diet/types";
+import { currentWeekDates, habitIsScheduled, habitStatus, habitStreak, isoDate, taskIsScheduled, taskStatus } from "@/lib/productivity/date";
+import { archiveInboxItem, loadCheckins, loadHabitDayPlans, loadHabitEntries, loadHabits, loadInboxItems, loadReadingData, loadTaskEntries, loadTasks, recordReadingProgress, saveCheckin, setHabitStatus as persistHabitStatus, setTaskStatus as persistTaskStatus } from "@/lib/productivity/service";
+import { friendlyProductivityError } from "@/lib/productivity/errors";
+import type { CheckinEntry, Habit, HabitDayPlan, HabitEntry, HabitStatus, Task, TaskEntry } from "@/lib/productivity/types";
+import { DOW_NAMES, getMedalColor } from "@/data/mockData";
+import type { ReadingProject, ReadingSession } from "@/data/readingData";
 
 const toMinutes = (time: string) => {
   const [hours, minutes] = time.split(":").map(Number);
@@ -64,13 +41,7 @@ const toMinutes = (time: string) => {
 };
 
 function tasksForDate(tasks: Task[], date: string) {
-  const dow = new Date(`${date}T12:00:00`).getDay();
-  return tasks.filter((task) => {
-    if (task.frequency.type === "once") return task.date === date;
-    if (task.frequency.type === "daily") return true;
-    if (task.frequency.type === "xPerWeek") return true;
-    return task.frequency.days.includes(dow);
-  });
+  return tasks.filter((task) => taskIsScheduled(task, date));
 }
 
 function WeekStrip({
@@ -82,7 +53,7 @@ function WeekStrip({
   selectedDate: string;
   onSelect: (date: string) => void;
 }) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = isoDate(new Date());
 
   return (
     <Card className="p-3 sm:p-4">
@@ -204,118 +175,45 @@ function HabitCard({
   );
 }
 
-function NutritionCard({
-  meals,
-  doneMap,
-  onRegister,
-}: {
-  meals: Meal[];
-  doneMap: Record<string, boolean>;
-  onRegister: (mealId: string) => void;
-}) {
-  const completed = meals.filter((meal) => doneMap[meal.id]).length;
-  const next = meals.find((meal) => !doneMap[meal.id]);
-  const adherence = meals.length ? Math.round((completed / meals.length) * 100) : 0;
-  const totalKcal = meals.reduce((sum, meal) => sum + meal.items.reduce((itemsSum, item) => itemsSum + item.calories, 0), 0);
-  const totalProtein = meals.reduce((sum, meal) => sum + meal.items.reduce((itemsSum, item) => itemsSum + item.protein, 0), 0);
+function NutritionCard({ dietState, entries, selectedDate, loading }: { dietState: DietState | null; entries: DietConsumptionEntry[]; selectedDate: string; loading: boolean }) {
+  const targets = dietState?.targets;
+  const preferences = dietState?.preferences;
+  const consumed = summarizeConsumptionForDate(entries, selectedDate);
+  const hasConsumption = consumed.meal_count > 0;
+  const dateLabel = selectedDate === isoDate(new Date())
+    ? "hoje"
+    : new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(new Date(`${selectedDate}T12:00:00`));
 
   return (
     <Card className="flex h-full flex-col p-5">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="flex h-10 w-10 items-center justify-center rounded-full border border-line-accent bg-accent-subtle text-accent"><Utensils size={18} /></span>
-          <div><p className="apex-kicker mb-1.5">Dieta do dia</p><h2 className="apex-section-heading">Plano equilibrado</h2></div>
+          <div><p className="apex-kicker mb-1.5">Dieta · {dateLabel}</p><h2 className="apex-section-heading">{targets ? hasConsumption ? "Consumo registrado" : "Acompanhamento diário" : "Configuração inicial"}</h2></div>
         </div>
         <button onClick={() => navigateTo("dieta")} className="flex min-h-9 items-center gap-1.5 text-[10px] font-semibold text-accent">Ver plano <ChevronRight size={13} /></button>
       </div>
 
-      <div className="flex items-start justify-between gap-4 rounded-card border border-line bg-surface p-4">
-        <div className="min-w-0">
-          <p className="text-[12px] font-semibold text-ink">{next?.name ?? "Plano concluído"}</p>
-          <p className="mt-1 text-[10px] text-ink-muted">{next ? `Próxima refeição • ${next.time}` : `${completed}/${meals.length} refeições registradas`}</p>
-          <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-ink-secondary">
-            <span className="font-stat">{totalKcal} kcal</span>
-            <span className="font-stat">Proteínas {totalProtein}g</span>
+      <div className="rounded-card border border-line bg-surface p-4">
+        {loading ? <p className="text-[10px] text-ink-muted">Carregando dados da Dieta...</p> : targets ? <>
+          <div className="flex items-end justify-between gap-3"><div><p className="font-stat text-[20px] font-semibold text-accent">{Math.round(consumed.calories)} <span className="text-[9px] font-normal text-ink-muted">/ {Math.round(Number(targets.calories))} kcal</span></p><p className="mt-1 text-[9px] text-ink-muted">{hasConsumption ? `${consumed.meal_count} de ${preferences?.meal_count ?? "—"} refeições registradas` : "Nenhuma refeição registrada neste dia"}</p></div><span className="font-stat text-[11px] font-semibold text-ink-secondary">{targetPercentage(consumed.calories, Number(targets.calories))}%</span></div>
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-raised"><span className="block h-full rounded-full bg-accent transition-all" style={{ width: `${Math.min(100, targetPercentage(consumed.calories, Number(targets.calories)))}%` }} /></div>
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <NutritionMetric label="Proteína" value={consumed.protein_g} target={Number(targets.protein_g)} />
+            <NutritionMetric label="Carbo" value={consumed.carbs_g} target={Number(targets.carbs_g)} />
+            <NutritionMetric label="Gordura" value={consumed.fat_g} target={Number(targets.fat_g)} />
           </div>
-        </div>
-        <div
-          className="grid h-16 w-16 shrink-0 place-items-center rounded-full"
-          style={{ background: `conic-gradient(var(--status-success) ${adherence * 3.6}deg, var(--surface-base) 0deg)` }}
-        >
-          <div className="grid h-12 w-12 place-items-center rounded-full bg-surface-raised font-stat text-[12px] font-semibold text-ink">{adherence}%</div>
-        </div>
+          <p className="mt-3 text-[8px] leading-relaxed text-ink-faint">Valores baseados apenas nas refeições marcadas como consumidas.</p>
+        </> : <><p className="text-[12px] font-semibold text-ink">Configure preferências e metas</p><p className="mt-2 text-[10px] leading-relaxed text-ink-muted">Conclua o onboarding da Dieta para iniciar o acompanhamento.</p></>}
       </div>
 
-      <div className="mt-4 space-y-2">
-        {meals.slice(0, 3).map((meal) => {
-          const done = Boolean(doneMap[meal.id]);
-          return (
-            <button key={meal.id} onClick={() => onRegister(meal.id)} className="flex min-h-10 w-full items-center gap-3 rounded-control border border-line bg-surface px-3 text-left transition-colors hover:border-line-strong">
-              <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${done ? "border-[var(--status-success)] bg-[var(--status-success)] text-ink-inverse" : "border-line-strong text-transparent"}`}><Check size={11} /></span>
-              <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-ink-secondary">{meal.name}</span>
-              <span className="font-stat text-[8px] text-ink-muted">{meal.time}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <button onClick={() => next && onRegister(next.id)} disabled={!next} className="apex-button-secondary mt-auto w-full disabled:opacity-40"><Check size={14} /> {next ? "Registrar refeição" : "Dia alimentar concluído"}</button>
+      <button onClick={() => navigateTo("dieta")} className="apex-button-secondary mt-auto w-full"><Utensils size={14} /> {targets ? hasConsumption ? "Revisar consumo" : "Registrar refeições" : "Configurar Dieta"}</button>
     </Card>
   );
 }
 
-function BodyCard({
-  workout,
-  template,
-  onToggle,
-}: {
-  workout?: PlannedWorkout;
-  template?: WorkoutTemplate;
-  onToggle: () => void;
-}) {
-  return (
-    <Card className="flex h-full flex-col p-5">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-full border border-line-accent bg-accent-subtle text-accent"><Dumbbell size={18} /></span>
-          <div><p className="apex-kicker mb-1.5">Treino do dia</p><h2 className="apex-section-heading">{template ? template.name : "Recuperação"}</h2></div>
-        </div>
-        <button onClick={() => navigateTo("treinos:semana")} className="flex min-h-9 items-center gap-1.5 text-[10px] font-semibold text-accent">Ver treino <ChevronRight size={13} /></button>
-      </div>
-
-      {workout && template ? (
-        <>
-          <div className="rounded-card border border-line bg-surface p-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={`inline-flex rounded-full px-2.5 py-1 text-[8px] font-semibold uppercase tracking-[.1em] ${workout.done ? "bg-[rgba(143,175,120,.16)] text-[var(--status-success)]" : "bg-accent-subtle text-accent"}`}>{workout.done ? "Concluído" : "Pronto para treinar"}</span>
-              <span className="font-stat text-[9px] text-ink-muted">{workout.time}</span>
-            </div>
-            <p className="mt-3 text-[10px] leading-relaxed text-ink-muted">{template.description}</p>
-            <div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-ink-secondary">
-              <span className="font-stat">{template.exercises.length} exercícios</span>
-            </div>
-          </div>
-
-          <div className="mt-4 space-y-2">
-            {template.exercises.slice(0, 3).map((exercise) => (
-              <div key={exercise.id} className="flex items-center gap-2 rounded-control border border-line bg-surface px-3 py-2.5 text-[10px] text-ink-secondary">
-                <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-                <span className="truncate">{exercise.name}</span>
-              </div>
-            ))}
-          </div>
-
-          <button onClick={onToggle} className={workout.done ? "apex-button-secondary mt-auto w-full" : "apex-button-secondary mt-auto w-full"}><Check size={14} /> {workout.done ? "Marcar como pendente" : "Concluir treino"}</button>
-        </>
-      ) : (
-        <div className="flex flex-1 flex-col items-center justify-center rounded-card border border-dashed border-line p-8 text-center">
-          <Moon size={24} className="mb-3 text-accent" />
-          <p className="text-[13px] font-semibold text-ink">Dia de recuperação</p>
-          <p className="mt-1 text-[10px] text-ink-muted">Sem treino programado para este dia.</p>
-        </div>
-      )}
-    </Card>
-  );
+function NutritionMetric({ label, value, target }: { label: string; value: number; target: number }) {
+  return <div className="rounded-control border border-line-subtle bg-surface-raised p-2"><p className="text-[7px] font-semibold uppercase tracking-wide text-ink-faint">{label}</p><p className="mt-1 font-stat text-[10px] font-semibold text-ink">{Math.round(value)} <span className="text-[7px] font-normal text-ink-muted">/ {Math.round(target)} g</span></p></div>;
 }
 
 function RemindersCard({
@@ -372,29 +270,39 @@ function RemindersCard({
 }
 
 export default function DashboardPage() {
+  const { user, loading: authLoading } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [nowMinutes, setNowMinutes] = useState(0);
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0]);
-  const [habits] = useLocalStorage<Habit[]>("apex-habits-today", defaultHabits);
-  const [presets] = useLocalStorage<DayPreset[]>("apex-day-presets", defaultPresets);
-  const [exceptions] = useLocalStorage<DayException[]>("apex-day-exceptions", []);
-  const [histories, setHistories] = useLocalStorage<Record<string, Record<string, HabitStatus>>>("apex-habit-histories", {});
-  const [statuses, setStatuses] = useLocalStorage<Record<string, HabitStatus>>("apex-today-statuses", {});
-  const [tasks, setTasks] = useLocalStorage<Task[]>("apex-tasks", defaultTasks);
-  const [checkins, setCheckins] = useLocalStorage<CheckinEntry[]>("apex-checkins", []);
-  const [planned, setPlanned] = useLocalStorage<PlannedWorkout[]>("apex-planned-workouts", defaultPlannedWorkouts);
-  const [templates] = useLocalStorage<WorkoutTemplate[]>("apex-templates", defaultTemplates);
-  const [dietPresets] = useLocalStorage<DietDayPreset[]>("apex-diet-presets", defaultDietPresets);
-  const [dietExceptions] = useLocalStorage<Record<string, Meal[]>>("apex-diet-exceptions", {});
-  const [dietDone, setDietDone] = useLocalStorage<Record<string, boolean>>("apex-diet-done", {});
-  const [inbox, setInbox] = useLocalStorage<InboxItem[]>("apex-inbox", []);
-  const [books, setBooks] = useLocalStorage<ReadingProject[]>("apex-reading-projects", defaultReadingProjects);
-  const [readingSessions, setReadingSessions] = useLocalStorage<ReadingSession[]>("apex-reading-sessions", defaultReadingSessions);
+  const [selectedDate, setSelectedDate] = useState(() => isoDate(new Date()));
+  const [habits, setHabits] = useState<Habit[]>([]);
+  const [habitEntries, setHabitEntries] = useState<HabitEntry[]>([]);
+  const [habitPlans, setHabitPlans] = useState<HabitDayPlan[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [taskEntries, setTaskEntries] = useState<TaskEntry[]>([]);
+  const [checkins, setCheckins] = useState<CheckinEntry[]>([]);
+  const [dietState, setDietState] = useState<DietState | null>(null);
+  const [dietConsumption, setDietConsumption] = useState<DietConsumptionEntry[]>([]);
+  const [dietLoading, setDietLoading] = useState(true);
+  const [inbox, setInbox] = useState<InboxItem[]>([]);
+  const [books, setBooks] = useState<ReadingProject[]>([]);
+  const [readingSessions, setReadingSessions] = useState<ReadingSession[]>([]);
+  const [productivityLoading, setProductivityLoading] = useState(true);
+  const [productivityError, setProductivityError] = useState("");
   const [showCheckin, setShowCheckin] = useState(false);
   const [showReading, setShowReading] = useState(false);
   const [focusHabitId, setFocusHabitId] = useState<string | null>(null);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = isoDate(new Date());
+  const weekDates = useMemo(() => currentWeekDates(), []);
+
+  const refreshProductivity = useCallback(async () => {
+    if (!user) return;
+    const [loadedHabits, entries, plans, loadedTasks, taskRows, loadedCheckins, loadedInbox, reading] = await Promise.all([
+      loadHabits(user.id), loadHabitEntries(user.id, weekDates[0], weekDates[6]), loadHabitDayPlans(user.id, weekDates[0], weekDates[6]),
+      loadTasks(user.id), loadTaskEntries(user.id, weekDates[0], weekDates[6]), loadCheckins(user.id, weekDates[0], weekDates[6]), loadInboxItems(user.id), loadReadingData(user.id),
+    ]);
+    setHabits(loadedHabits); setHabitEntries(entries); setHabitPlans(plans); setTasks(loadedTasks); setTaskEntries(taskRows); setCheckins(loadedCheckins); setInbox(loadedInbox); setBooks(reading.projects); setReadingSessions(reading.sessions);
+  }, [user, weekDates]);
 
   useEffect(() => {
     setMounted(true);
@@ -407,23 +315,58 @@ export default function DashboardPage() {
     return () => window.clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      setProductivityLoading(false);
+      return;
+    }
+    let active = true;
+    const load = async () => {
+      setProductivityError("");
+      try {
+        await refreshProductivity();
+      } catch (error) {
+        if (active) setProductivityError(friendlyProductivityError(error));
+      } finally {
+        if (active) setProductivityLoading(false);
+      }
+    };
+    void load();
+    const onChanged = () => void load();
+    window.addEventListener("apex-productivity-changed", onChanged);
+    return () => {
+      active = false;
+      window.removeEventListener("apex-productivity-changed", onChanged);
+    };
+  }, [authLoading, refreshProductivity, user]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      setDietLoading(false);
+      return;
+    }
+    let active = true;
+    setDietLoading(true);
+    void Promise.all([loadDietState(user), loadDietConsumptionRange(user.id, weekDates[0], weekDates[6])])
+      .then(([loadedState, loadedConsumption]) => { if (active) { setDietState(loadedState); setDietConsumption(loadedConsumption); } })
+      .catch(() => { if (active) { setDietState(null); setDietConsumption([]); } })
+      .finally(() => { if (active) setDietLoading(false); });
+    return () => { active = false; };
+  }, [authLoading, user, weekDates]);
+
   function habitsForDate(date: string) {
-    const dow = new Date(`${date}T12:00:00`).getDay();
-    const ids = exceptions.find((item) => item.date === date)?.habitIds ?? presets.find((item) => item.dow === dow)?.habitIds ?? [];
-    return habits.filter((habit) => ids.includes(habit.id)).sort((a, b) => a.time.localeCompare(b.time));
+    return habits.filter((habit) => habitIsScheduled(habit, date, habitPlans)).sort((a, b) => a.time.localeCompare(b.time));
   }
 
   function statusForHabit(habit: Habit, date: string) {
-    return date === today ? statuses[habit.id] ?? habit.status : histories[habit.id]?.[date] ?? "pending";
+    return habitStatus(habitEntries, habit.id, date);
   }
 
-  const selectedHabits = habitsForDate(selectedDate).map((habit) => ({ ...habit, status: statusForHabit(habit, selectedDate) }));
+  const selectedHabits = habitsForDate(selectedDate).map((habit) => ({ ...habit, status: statusForHabit(habit, selectedDate), streak: habitStreak(habitEntries, habit.id, today) }));
   const activeBooks = books.filter((book) => book.status === "active");
-  const selectedDow = new Date(`${selectedDate}T12:00:00`).getDay();
-  const selectedTasks = tasksForDate(tasks, selectedDate);
-  const selectedWorkout = planned.find((workout) => workout.day === FULL_DAY_NAMES[selectedDow]);
-  const selectedTemplate = selectedWorkout ? templates.find((template) => template.id === selectedWorkout.templateId) : undefined;
-  const selectedMeals = dietExceptions[selectedDate] ?? dietPresets.find((preset) => preset.dow === selectedDow)?.meals ?? [];
+  const selectedTasks = tasksForDate(tasks, selectedDate).map((task) => ({ ...task, status: taskStatus(taskEntries, task.id, selectedDate) }));
 
   const nextHabitId = useMemo(() => {
     const pending = selectedHabits.filter((habit) => habit.status !== "done");
@@ -441,9 +384,20 @@ export default function DashboardPage() {
   const habitsDone = selectedHabits.filter((habit) => habit.status === "done").length;
   const habitsProgress = selectedHabits.length ? Math.round((habitsDone / selectedHabits.length) * 100) : 0;
 
-  function commitHabitStatus(id: string, date: string, status: HabitStatus) {
-    if (date === today) setStatuses((previous) => ({ ...previous, [id]: status }));
-    setHistories((previous) => ({ ...previous, [id]: { ...(previous[id] ?? {}), [date]: status } }));
+  async function commitHabitStatus(id: string, date: string, status: HabitStatus) {
+    setProductivityError("");
+    setHabitEntries((previous) => [
+      ...previous.filter((entry) => !(entry.habitId === id && entry.date === date)),
+      ...(status === "pending" ? [] : [{ id: `optimistic-${id}-${date}`, habitId: id, date, status, completedAt: status === "done" ? new Date().toISOString() : null }]),
+    ]);
+    try {
+      await persistHabitStatus(id, date, status);
+      await refreshProductivity();
+      window.dispatchEvent(new CustomEvent("apex-productivity-changed"));
+    } catch (error) {
+      setProductivityError(friendlyProductivityError(error));
+      await refreshProductivity().catch(() => undefined);
+    }
   }
 
   function toggleHabit(habit: Habit) {
@@ -458,20 +412,64 @@ export default function DashboardPage() {
       setShowReading(true);
       return;
     }
-    commitHabitStatus(habit.id, selectedDate, next);
+    void commitHabitStatus(habit.id, selectedDate, next);
   }
 
-  function logReading(bookId: string, toPage: number) {
+  async function logReading(bookId: string, toPage: number) {
     const book = books.find((candidate) => candidate.id === bookId);
     if (!book) return;
     const pagesRead = Math.max(0, toPage - book.currentPage);
-    setReadingSessions((previous) => [...previous, { id: `rs${Date.now()}`, bookId, date: today, fromPage: book.currentPage, toPage, pagesRead, createdAt: new Date().toISOString() }]);
-    setBooks((previous) => previous.map((candidate) => candidate.id === bookId ? { ...candidate, currentPage: Math.min(toPage, candidate.totalPages), status: toPage >= candidate.totalPages ? "completed" : candidate.status, updatedAt: new Date().toISOString() } : candidate));
-    const readingHabit = habits.find((habit) => habit.opensReadingLog);
-    if (readingHabit && pagesRead > 0) commitHabitStatus(readingHabit.id, today, "done");
+    setProductivityError("");
+    try {
+      await recordReadingProgress(bookId, today, toPage);
+      const readingHabit = habits.find((habit) => habit.opensReadingLog);
+      if (readingHabit && pagesRead > 0) await persistHabitStatus(readingHabit.id, today, "done");
+      await refreshProductivity();
+      window.dispatchEvent(new CustomEvent("apex-productivity-changed"));
+    } catch (error) {
+      setProductivityError(friendlyProductivityError(error));
+    }
   }
 
-  const weekDays = getCurrentWeekDates().map((date) => {
+  async function toggleTask(id: string) {
+    const current = taskStatus(taskEntries, id, selectedDate);
+    const next: HabitStatus = current === "done" ? "pending" : "done";
+    setProductivityError("");
+    try {
+      await persistTaskStatus(id, selectedDate, next);
+      await refreshProductivity();
+      window.dispatchEvent(new CustomEvent("apex-productivity-changed"));
+    } catch (error) {
+      setProductivityError(friendlyProductivityError(error));
+    }
+  }
+
+  async function archiveIdea(id: string) {
+    if (!user) return;
+    setProductivityError("");
+    try {
+      await archiveInboxItem(user.id, id);
+      await refreshProductivity();
+      window.dispatchEvent(new CustomEvent("apex-productivity-changed"));
+    } catch (error) {
+      setProductivityError(friendlyProductivityError(error));
+    }
+  }
+
+  async function completeCheckin(entry: CheckinEntry) {
+    if (!user) return;
+    setShowCheckin(false);
+    setProductivityError("");
+    try {
+      await saveCheckin(user.id, entry);
+      await refreshProductivity();
+      window.dispatchEvent(new CustomEvent("apex-productivity-changed"));
+    } catch (error) {
+      setProductivityError(friendlyProductivityError(error));
+    }
+  }
+
+  const weekDays = weekDates.map((date) => {
     const dateObject = new Date(`${date}T12:00:00`);
     const dayHabits = habitsForDate(date);
     const completed = dayHabits.filter((habit) => statusForHabit(habit, date) === "done").length;
@@ -487,6 +485,11 @@ export default function DashboardPage() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-full">
       <PageHeader title="Hoje" subtitle="Seu dia em uma visão: consistência, corpo e prioridades" />
       <div className="apex-page space-y-7 sm:space-y-8">
+        {productivityError && (
+          <div role="alert" className="rounded-card border border-[var(--status-danger)]/35 bg-[var(--status-danger)]/10 px-4 py-3 text-[10px] text-[var(--status-danger)]">
+            {productivityError}
+          </div>
+        )}
         <WeekStrip days={weekDays} selectedDate={selectedDate} onSelect={setSelectedDate} />
 
         <Card emphasis className="overflow-hidden p-4 sm:p-5">
@@ -526,7 +529,8 @@ export default function DashboardPage() {
           ) : (
             <div className="rounded-card border border-dashed border-line p-10 text-center">
               <BookOpen size={22} className="mx-auto mb-3 text-ink-faint" />
-              <p className="text-[12px] font-semibold text-ink-secondary">Nenhum hábito planejado</p>
+              <p className="text-[12px] font-semibold text-ink-secondary">{productivityLoading ? "Carregando hábitos..." : "Nenhum hábito planejado"}</p>
+              {!productivityLoading && <p className="mt-1 text-[9px] text-ink-muted">Crie sua rotina em Planejamento.</p>}
             </div>
           )}
         </Card>
@@ -535,11 +539,11 @@ export default function DashboardPage() {
           <RemindersCard
             tasks={selectedTasks}
             inbox={inbox}
-            onToggleTask={(id) => setTasks((previous) => previous.map((task) => task.id === id ? { ...task, status: task.status === "done" ? "pending" : "done" } : task))}
-            onArchive={(id) => setInbox((previous) => previous.map((item) => item.id === id ? { ...item, archived: true } : item))}
+            onToggleTask={(id) => void toggleTask(id)}
+            onArchive={(id) => void archiveIdea(id)}
           />
-          <BodyCard workout={selectedWorkout} template={selectedTemplate} onToggle={() => selectedWorkout && setPlanned((previous) => previous.map((workout) => workout.id === selectedWorkout.id ? { ...workout, done: !workout.done } : workout))} />
-          <NutritionCard meals={selectedMeals} doneMap={dietDone} onRegister={(mealId) => setDietDone((previous) => ({ ...previous, [mealId]: !previous[mealId] }))} />
+          <TodayTrainingCard selectedDate={selectedDate} />
+          <NutritionCard dietState={dietState} entries={dietConsumption} selectedDate={selectedDate} loading={dietLoading} />
         </section>
 
         <Card className="p-4">
@@ -566,9 +570,9 @@ export default function DashboardPage() {
       </div>
 
       <AnimatePresence>
-        {showCheckin && <CheckinModal onComplete={(entry) => { setCheckins((previous) => [...previous.filter((item) => item.date !== entry.date), entry]); setShowCheckin(false); }} onSkip={() => setShowCheckin(false)} />}
-        {showReading && activeBooks.length > 0 && <ReadingLogSheet activeBooks={activeBooks} sessions={readingSessions} onLog={logReading} onClose={() => setShowReading(false)} />}
-        {focusHabitId && (() => { const habit = habits.find((candidate) => candidate.id === focusHabitId); return habit ? <FocusTimerModal task={habit.name} duration={habit.duration} onComplete={() => { commitHabitStatus(habit.id, today, "done"); setFocusHabitId(null); }} onClose={() => setFocusHabitId(null)} /> : null; })()}
+        {showCheckin && <CheckinModal date={selectedDate} onComplete={(entry) => void completeCheckin(entry)} onSkip={() => setShowCheckin(false)} />}
+        {showReading && activeBooks.length > 0 && <ReadingLogSheet activeBooks={activeBooks} sessions={readingSessions} onLog={(bookId, toPage) => void logReading(bookId, toPage)} onClose={() => setShowReading(false)} />}
+        {focusHabitId && (() => { const habit = habits.find((candidate) => candidate.id === focusHabitId); return habit ? <FocusTimerModal task={habit.name} habitId={habit.id} duration={habit.duration} onComplete={() => { void commitHabitStatus(habit.id, today, "done"); setFocusHabitId(null); }} onClose={() => setFocusHabitId(null)} /> : null; })()}
       </AnimatePresence>
     </motion.div>
   );

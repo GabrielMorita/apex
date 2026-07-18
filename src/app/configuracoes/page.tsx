@@ -1,27 +1,23 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Download, Upload, CheckCircle2, AlertCircle, User, ChevronDown, ChevronUp, Dumbbell, Activity, Target, Library } from "lucide-react";
+import { Download, CheckCircle2, AlertCircle, Settings, ChevronDown, ChevronUp, Activity, Target, Library, Cloud, LogOut, LoaderCircle } from "lucide-react";
+import type { LucideIcon as LucideIconType } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
+import ProfileSettings from "@/components/profile/ProfileSettings";
 import ReadingHistory from "@/components/reading/ReadingHistory";
-import { useLocalStorage } from "@/lib/useLocalStorage";
-import { defaultReadingProjects, defaultReadingSessions, type ReadingProject, type ReadingSession } from "@/data/readingData";
-
-const APEX_KEYS = [
-  "apex-habits-today","apex-day-presets","apex-day-exceptions",
-  "apex-habit-histories","apex-today-statuses","apex-weekly-goals",
-  "apex-tasks","apex-checkins","apex-favorites","apex-focus","apex-goals",
-  "apex-workouts","apex-templates","apex-planned-workouts","apex-workout-logs",
-  "apex-diet-presets","apex-diet-exceptions","apex-food-bank","apex-diet-goals",
-  "apex-custom-quotes","apex-custom-verses","apex-diary-entries","apex-gratidao",
-  "apex-deepwork-sessions","apex-review-current","apex-profile",
-  "apex-reading-projects","apex-reading-sessions","apex-reading-cycles","apex-diet-done","apex-checkin-seen","apex-day-moods",
-];
-
-interface Profile { name: string; email: string; avatar: string; }
+import { useAuth } from "@/components/auth/AuthProvider";
+import type { ReadingProject, ReadingSession } from "@/data/readingData";
+import type { CheckinEntry, FocusSession } from "@/lib/productivity/types";
+import { loadCheckins, loadFocusSessions, loadReadingData } from "@/lib/productivity/service";
+import { buildAccountExport, downloadAccountExport } from "@/lib/account/service";
+import { friendlyProductivityError } from "@/lib/productivity/errors";
+import NotificationSettingsCard from "@/components/notifications/NotificationSettingsCard";
+import BillingCard from "@/components/billing/BillingCard";
+import PrivacyCenterCard from "@/components/privacy/PrivacyCenterCard";
 
 // Section wrapper
-function Section({ title, icon: Icon, children, defaultOpen=true }: { title:string; icon:any; children:React.ReactNode; defaultOpen?:boolean }) {
+function Section({ title, icon: Icon, children, defaultOpen=true }: { title:string; icon:LucideIconType; children:React.ReactNode; defaultOpen?:boolean }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="bg-apex-card border border-apex-border rounded-xl overflow-hidden">
@@ -42,39 +38,44 @@ function Section({ title, icon: Icon, children, defaultOpen=true }: { title:stri
 }
 
 export default function ConfiguracoesPage() {
-  const [status, setStatus]   = useState<"idle"|"exported"|"imported"|"error">("idle");
+  const [status, setStatus]   = useState<"idle"|"exporting"|"exported"|"error">("idle");
+  const [cloudStatus, setCloudStatus] = useState<"syncing"|"synced"|"error">("syncing");
   const [mounted, setMounted] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  const [profile, setProfile] = useLocalStorage<Profile>("apex-profile",{name:"",email:"",avatar:""});
-  const [readingProjects]     = useLocalStorage<ReadingProject[]>("apex-reading-projects", defaultReadingProjects);
-  const [readingSessions]     = useLocalStorage<ReadingSession[]>("apex-reading-sessions", defaultReadingSessions);
-  const [sessions]            = useLocalStorage<{id:string;date:string;minutes:number;task:string}[]>("apex-deepwork-sessions",[]);
-  const [workoutLogs]         = useLocalStorage<any[]>("apex-workout-logs",[]);
-  const [checkins]            = useLocalStorage<any[]>("apex-checkins",[]);
+  const { user, signOut } = useAuth();
+  const [readingProjects, setReadingProjects] = useState<ReadingProject[]>([]);
+  const [readingSessions, setReadingSessions] = useState<ReadingSession[]>([]);
+  const [sessions, setSessions] = useState<FocusSession[]>([]);
+  const [checkins, setCheckins] = useState<CheckinEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState("");
 
   useEffect(()=>setMounted(true),[]);
 
-  function handleExport() {
-    const data:Record<string,any>={};
-    APEX_KEYS.forEach((k)=>{ const v=localStorage.getItem(k); if(v) data[k]=JSON.parse(v); });
-    const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a"); a.href=url; a.download=`apex-backup-${new Date().toISOString().split("T")[0]}.json`; a.click();
-    URL.revokeObjectURL(url); setStatus("exported"); setTimeout(()=>setStatus("idle"),3000);
-  }
+  useEffect(() => {
+    if (!user) { setHistoryLoading(false); setCloudStatus("error"); return; }
+    let active = true;
+    setHistoryLoading(true); setHistoryError(""); setCloudStatus("syncing");
+    void Promise.all([loadReadingData(user.id), loadFocusSessions(user.id), loadCheckins(user.id, "1900-01-01", "2999-12-31")])
+      .then(([reading, focus, loadedCheckins]) => {
+        if (!active) return;
+        setReadingProjects(reading.projects); setReadingSessions(reading.sessions); setSessions(focus); setCheckins(loadedCheckins); setCloudStatus("synced");
+      })
+      .catch((error) => { if (active) { setHistoryError(friendlyProductivityError(error)); setCloudStatus("error"); } })
+      .finally(() => { if (active) setHistoryLoading(false); });
+    return () => { active = false; };
+  }, [user]);
 
-  function handleImport(e:React.ChangeEvent<HTMLInputElement>) {
-    const file=e.target.files?.[0]; if(!file) return;
-    const reader=new FileReader();
-    reader.onload=(ev)=>{
-      try {
-        const data=JSON.parse(ev.target?.result as string);
-        Object.entries(data).forEach(([k,v])=>{ if(APEX_KEYS.includes(k)) localStorage.setItem(k,JSON.stringify(v)); });
-        setStatus("imported"); setTimeout(()=>window.location.reload(),1500);
-      } catch { setStatus("error"); setTimeout(()=>setStatus("idle"),3000); }
-    };
-    reader.readAsText(file);
+  async function handleExport() {
+    if (!user || status === "exporting") return;
+    setStatus("exporting");
+    try {
+      downloadAccountExport(await buildAccountExport(user));
+      setStatus("exported");
+      window.setTimeout(() => setStatus("idle"), 3000);
+    } catch {
+      setStatus("error");
+      window.setTimeout(() => setStatus("idle"), 3000);
+    }
   }
 
 
@@ -86,31 +87,41 @@ export default function ConfiguracoesPage() {
       <PageHeader title="Configurações" subtitle="Perfil, preferências, histórico e backup"/>
       <div className="apex-page max-w-2xl space-y-5">
 
-        {/* Perfil */}
-        <Section title="Perfil" icon={User}>
+        <ProfileSettings />
+        <NotificationSettingsCard />
+        <PrivacyCenterCard />
+        <BillingCard />
+        {historyError && <div role="alert" className="flex items-center gap-2 rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-[10px] text-red-300"><AlertCircle size={13}/>{historyError}</div>}
+
+        {/* Configurações da conta já existentes */}
+        <Section title="Configurações da conta" icon={Settings} defaultOpen={false}>
           <div className="space-y-3">
-            <div>
-              <p className="text-[9px] text-apex-faint uppercase tracking-wider mb-1.5">Nome</p>
-              <input type="text" value={profile.name} onChange={(e)=>setProfile(p=>({...p,name:e.target.value}))}
-                placeholder="Seu nome" className="w-full bg-apex-surface border border-apex-border rounded-lg px-3 py-2 text-[12px] text-apex-white placeholder-apex-faint outline-none focus:border-gold transition-colors"/>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-apex-border bg-apex-surface px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <Cloud size={14} className={cloudStatus==="error"?"text-red-400":cloudStatus==="syncing"?"text-amber-300":"text-emerald-400"}/>
+                <div>
+                  <p className="text-[10px] font-medium text-apex-white">Sincronização em nuvem</p>
+                  <p className="text-[9px] text-apex-faint">{cloudStatus==="error"?"Erro ao sincronizar":cloudStatus==="syncing"?"Sincronizando alterações...":"Dados protegidos e sincronizados"}</p>
+                </div>
+              </div>
+              <span className={`rounded-full px-2 py-1 text-[8px] font-semibold uppercase tracking-wider ${cloudStatus==="error"?"bg-red-400/10 text-red-300":cloudStatus==="syncing"?"bg-amber-300/10 text-amber-200":"bg-emerald-400/10 text-emerald-300"}`}>{cloudStatus==="error"?"Erro":cloudStatus==="syncing"?"Enviando":"Ativo"}</span>
             </div>
-            <div>
-              <p className="text-[9px] text-apex-faint uppercase tracking-wider mb-1.5">Email</p>
-              <input type="email" value={profile.email} onChange={(e)=>setProfile(p=>({...p,email:e.target.value}))}
-                placeholder="seu@email.com" className="w-full bg-apex-surface border border-apex-border rounded-lg px-3 py-2 text-[12px] text-apex-white placeholder-apex-faint outline-none focus:border-gold transition-colors"/>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={()=>void signOut()} className="flex items-center gap-2 px-4 py-2.5 bg-apex-surface border border-apex-border text-apex-muted rounded-lg text-[12px] hover:border-red-400/40 hover:text-red-300 transition-colors">
+                <LogOut size={13}/> Sair da conta
+              </button>
             </div>
-            <p className="text-[10px] text-apex-faint leading-relaxed bg-apex-surface border border-apex-border rounded-lg px-3 py-2.5">
-              🔒 Login e senha para uso online serão habilitados quando o app for publicado. Por enquanto, seus dados ficam salvos localmente no seu navegador.
-            </p>
           </div>
         </Section>
 
         {/* Histórico de Check-ins / Energia */}
         <Section title="Histórico de Energia & Check-ins" icon={Activity} defaultOpen={false}>
-          {checkins.length===0
+          {historyLoading
+            ?<p className="flex items-center gap-2 text-[11px] text-apex-faint"><LoaderCircle size={13} className="animate-spin"/>Carregando histórico...</p>
+            :checkins.length===0
             ?<p className="text-[11px] text-apex-faint italic">Nenhum check-in registrado ainda.</p>
             :<div className="space-y-2">
-              {[...checkins].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,14).map((c:any)=>(
+              {[...checkins].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,14).map((c)=>(
                 <div key={c.date} className="bg-apex-surface border border-apex-border rounded-xl px-4 py-3">
                   <p className="text-[10px] text-apex-muted font-mono mb-2">{new Date(c.date+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"short",day:"numeric",month:"short"})}</p>
                   <div className="grid grid-cols-5 gap-2">
@@ -139,7 +150,9 @@ export default function ConfiguracoesPage() {
 
         {/* Histórico de Deep Work */}
         <Section title="Histórico de Foco" icon={Target} defaultOpen={false}>
-          {sessions.length===0
+          {historyLoading
+            ?<p className="flex items-center gap-2 text-[11px] text-apex-faint"><LoaderCircle size={13} className="animate-spin"/>Carregando histórico...</p>
+            :sessions.length===0
             ?<p className="text-[11px] text-apex-faint italic">Nenhuma sessão registrada ainda.</p>
             :<div className="space-y-1.5">
               {[...sessions].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,20).map((s)=>(
@@ -161,27 +174,19 @@ export default function ConfiguracoesPage() {
 
         {/* Histórico de Leitura */}
         <Section title="Histórico de Leitura" icon={Library} defaultOpen={false}>
-          <ReadingHistory projects={readingProjects} sessions={readingSessions} />
+          {historyLoading ? <p className="flex items-center gap-2 text-[11px] text-apex-faint"><LoaderCircle size={13} className="animate-spin"/>Carregando histórico...</p> : <ReadingHistory projects={readingProjects} sessions={readingSessions} />}
         </Section>
 
         {/* Backup */}
         <Section title="Backup dos Dados" icon={Download}>
           <div className="space-y-4">
             <div>
-              <p className="text-[11px] text-apex-faint mb-3 leading-relaxed">Exporte seus dados para não perder nada se limpar o navegador ou trocar de computador.</p>
-              <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2.5 bg-gold text-apex-bg rounded-lg text-[12px] font-medium hover:bg-amber-500 transition-colors">
-                <Download size={13}/> Baixar backup (.json)
+              <p className="text-[11px] text-apex-faint mb-3 leading-relaxed">Exporte uma cópia dos dados reais da sua conta, incluindo Perfil, Dieta, Treino, produtividade, notificações, assinatura e registros de privacidade.</p>
+              <button disabled={!user || status==="exporting"} onClick={()=>void handleExport()} className="flex items-center gap-2 px-4 py-2.5 bg-gold text-apex-bg rounded-lg text-[12px] font-medium hover:bg-amber-500 transition-colors disabled:opacity-50">
+                {status==="exporting"?<LoaderCircle size={13} className="animate-spin"/>:<Download size={13}/>} {status==="exporting"?"Preparando backup...":"Baixar backup (.json)"}
               </button>
               {status==="exported"&&<div className="flex items-center gap-1.5 mt-2 text-emerald-400"><CheckCircle2 size={12}/><span className="text-[11px]">Backup salvo!</span></div>}
-            </div>
-            <div className="border-t border-apex-border pt-4">
-              <p className="text-[11px] text-apex-faint mb-3">Restaurar a partir de um backup anterior.</p>
-              <input ref={fileRef} type="file" accept=".json" onChange={handleImport} className="hidden"/>
-              <button onClick={()=>fileRef.current?.click()} className="flex items-center gap-2 px-4 py-2.5 bg-apex-surface border border-apex-border text-apex-muted rounded-lg text-[12px] hover:border-apex-border2 transition-colors">
-                <Upload size={13}/> Selecionar arquivo
-              </button>
-              {status==="imported"&&<div className="flex items-center gap-1.5 mt-2 text-emerald-400"><CheckCircle2 size={12}/><span className="text-[11px]">Importado! Recarregando...</span></div>}
-              {status==="error"&&<div className="flex items-center gap-1.5 mt-2 text-red-400"><AlertCircle size={12}/><span className="text-[11px]">Arquivo inválido.</span></div>}
+              {status==="error"&&<div className="flex items-center gap-1.5 mt-2 text-red-400"><AlertCircle size={12}/><span className="text-[11px]">Não foi possível gerar o backup.</span></div>}
             </div>
           </div>
         </Section>
